@@ -23,7 +23,7 @@ _RE_FUNCIONARIO = re.compile(r"^Funcion.{0,2}rio:\s*\d+\s*-\s*(.+)")
 _RE_TURNO       = re.compile(r"Turno:\s*(\d+)")
 _RE_DIA         = re.compile(r"Dia:\s*(\d{2}/\d{2}/\d{4})")
 _RE_RECURSO     = re.compile(r"Recurso:\s*(.+)")
-_RE_PERIODO     = re.compile(r"Per.{0,2}odo:\s*(\d{2}/\d{2}/\d{4})\s*-\s*(\d{2}/\d{2}/\d{4})")
+_RE_PERIODO     = re.compile(r"Per.{0,2}odo:\s*(\d{2}/\d{2}/\d{4})\s*-\s*(\d{2}/\d{2}/\d{4})(?:.*?Turno\*:\s*(\d+))?")
 
 _HORAS: dict[tuple[int, bool], float] = {
     (1, False): 7 + 50 / 60,
@@ -138,6 +138,8 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
                 if m:
                     periodo_inicio_str = m.group(1)
                     periodo_fim_str    = m.group(2)
+                    if m.group(3):          # Turno*:X no cabeçalho
+                        turno = f"Turno {m.group(3)}"
                     continue
 
                 # ── Funcionário (novo formato) ──────────────────────────────
@@ -184,11 +186,13 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
                 if "Total" in linha or "Registros" in linha:
                     continue
 
-                # Referência de data
+                # Referência de data + detecção do formato
                 if data_atual:
-                    data_ref = data_atual
+                    data_ref     = data_atual
+                    formato_dado = "diario"    # tem Dia: → dados por dia
                 elif periodo_fim_str:
-                    data_ref = periodo_fim_str
+                    data_ref     = periodo_fim_str
+                    formato_dado = "quinzenal" # sem Dia: → agregado por período
                 else:
                     continue
 
@@ -208,6 +212,7 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
                     "Nome Curto":        nome_curto(operador),
                     "Turno":             turno or "Não Informado",
                     "Data":              data_ref,
+                    "Formato":           formato_dado,
                     "Periodo_Inicio":    periodo_inicio_str,
                     "Periodo_Fim":       periodo_fim_str,
                     "Máquina":           recurso_atual,
@@ -269,15 +274,16 @@ def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
     horas_op = {}
     dias_op  = {}
     for op, g in df_in.groupby("Operador"):
-        ts = g["Turno"].iloc[0]
-        p_ini = g["Periodo_Inicio_dt"].iloc[0]
-        p_fim = g["Periodo_Fim_dt"].iloc[0]
-        if pd.notna(p_ini) and pd.notna(p_fim):
-            # Formato período (RPCP621): calcula horas pelo intervalo
+        ts      = g["Turno"].iloc[0]
+        fmt     = g["Formato"].iloc[0]
+        p_ini   = g["Periodo_Inicio_dt"].iloc[0]
+        p_fim   = g["Periodo_Fim_dt"].iloc[0]
+        if fmt == "quinzenal" and pd.notna(p_ini) and pd.notna(p_fim):
+            # Sem Dia: → agrega pelo período completo
             horas_op[op] = horas_operador_periodo(ts, p_ini, p_fim)
             dias_op[op]  = dias_trabalhados_no_periodo(p_ini, p_fim)
         else:
-            # Formato diário (RPCP620 antigo): soma horas por dia único
+            # Com Dia: → soma horas por dia trabalhado (mais preciso)
             dias_uniq    = g["Data_dt"].dropna().drop_duplicates()
             horas_op[op] = dias_uniq.apply(lambda d: horas_turno(ts, d)).sum()
             dias_op[op]  = len(dias_uniq)
@@ -386,9 +392,10 @@ with aba1:
         dias_op  = {}
         for op, g in df_m.groupby("Operador"):
             ts    = g["Turno"].iloc[0]
+            fmt   = g["Formato"].iloc[0]
             p_ini = g["Periodo_Inicio_dt"].iloc[0]
             p_fim = g["Periodo_Fim_dt"].iloc[0]
-            if pd.notna(p_ini) and pd.notna(p_fim):
+            if fmt == "quinzenal" and pd.notna(p_ini) and pd.notna(p_fim):
                 horas_op[op] = horas_operador_periodo(ts, p_ini, p_fim)
                 dias_op[op]  = dias_trabalhados_no_periodo(p_ini, p_fim)
             else:
@@ -613,9 +620,10 @@ with aba3:
     horas_item_op: dict[tuple, float] = {}
     for (item, op), g in df.groupby(["Cód Item", "Operador"]):
         ts    = g["Turno"].iloc[0]
+        fmt   = g["Formato"].iloc[0]
         p_ini = g["Periodo_Inicio_dt"].iloc[0]
         p_fim = g["Periodo_Fim_dt"].iloc[0]
-        if pd.notna(p_ini) and pd.notna(p_fim):
+        if fmt == "quinzenal" and pd.notna(p_ini) and pd.notna(p_fim):
             horas_item_op[(item, op)] = horas_operador_periodo(ts, p_ini, p_fim)
         else:
             dias_uniq = g["Data_dt"].dropna().drop_duplicates()
