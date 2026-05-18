@@ -339,21 +339,21 @@ with aba1:
 
     resumo = calcular_resumo_operadores(df)
 
-    # Cards — top 10 visíveis, demais em expander
+    # Cards — top 3 visíveis, demais em expander
     medalhas = ["🥇", "🥈", "🥉"]
-    _TOP = min(len(resumo), 10)
-    cols = st.columns(_TOP)
-    for i in range(_TOP):
+    _TOP3 = min(len(resumo), 3)
+    cols = st.columns(_TOP3)
+    for i in range(_TOP3):
         row = resumo.iloc[i]
         with cols[i]:
             st.metric(
-                label=f"{medalhas[i] if i < 3 else ''} {row['Nome Curto']}",
+                label=f"{medalhas[i]} {row['Nome Curto']}",
                 value=f"{row['KG / Hora']:.2f} KG/hora",
                 delta=f"{row['Turno']} · {row['Dias Trabalhados']} dias · {row['Horas Trabalhadas']:.0f}h",
             )
-    if len(resumo) > 10:
+    if len(resumo) > 3:
         with st.expander(f"Ver todos os {len(resumo)} operadores"):
-            _rest = resumo.iloc[10:]
+            _rest = resumo.iloc[3:]
             _cols2 = st.columns(min(len(_rest), 5))
             for j, (_, row) in enumerate(_rest.iterrows()):
                 with _cols2[j % 5]:
@@ -457,14 +457,27 @@ with aba1:
             r_m = resumo_por_maquina(df_m)
             n_m = len(r_m)
 
-            cols_m = st.columns(n_m)
-            for i, row in r_m.iterrows():
+            _top3_m = min(n_m, 3)
+            cols_m = st.columns(_top3_m)
+            for i in range(_top3_m):
+                row = r_m.iloc[i]
                 with cols_m[i]:
                     st.metric(
-                        label=f"{_medalhas[i] if i < 3 else ''} {row['Nome Curto']}",
+                        label=f"{_medalhas[i]} {row['Nome Curto']}",
                         value=f"{row['KG / Hora']:.2f} KG/hora",
                         delta=f"{row['Dias']} dias · {row['Horas']:.0f}h",
                     )
+            if n_m > 3:
+                with st.expander(f"Ver todos os {n_m} operadores"):
+                    _rest_m = r_m.iloc[3:]
+                    _cols_rest = st.columns(min(len(_rest_m), 5))
+                    for j, (_, row) in enumerate(_rest_m.iterrows()):
+                        with _cols_rest[j % 5]:
+                            st.metric(
+                                label=row["Nome Curto"],
+                                value=f"{row['KG / Hora']:.2f} KG/hora",
+                                delta=f"{row['Dias']} dias",
+                            )
 
             st.plotly_chart(
                 bar_chart(r_m["Nome Curto"], r_m["KG / Hora"], fmt=".2f", max_show=5),
