@@ -302,11 +302,12 @@ st.success(
     f"{df['Operador'].nunique()} operador(es)"
 )
 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs([
+aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
     "🏅 Top Produção",
+    "📈 Evolução Operador",
     "📅 KG / Dia",
     "📊 Resumo Geral",
     "📋 Dados Brutos",
@@ -917,8 +918,304 @@ with aba3:
         st.info("Nenhum produto compartilhado entre operadores nos PDFs carregados.")
 
 
-# ── Aba 5: KG / Dia ──────────────────────────────────────────────────────────
+# ── Aba 5: Evolução Operador ──────────────────────────────────────────────────
 with aba5:
+    st.header("📈 Evolução Individual do Operador")
+    st.caption("Carregue o relatório RPCP621 de um único operador com vários meses para ver a evolução mês a mês.")
+
+    # Seleção do operador
+    _ops_evo = sorted(df["Operador"].unique())
+    if len(_ops_evo) == 1:
+        _op_evo = _ops_evo[0]
+        st.info(f"Operador detectado automaticamente: **{nome_curto(_op_evo)}** — {_op_evo}")
+    else:
+        _op_evo = st.selectbox(
+            "Selecione o operador para análise de evolução:",
+            _ops_evo,
+            format_func=lambda x: f"{nome_curto(x)} — {x}",
+            key="sel_evo",
+        )
+
+    _df_op = df[df["Operador"] == _op_evo].copy()
+    _turno_op = _df_op["Turno"].iloc[0]
+    _nc_op = _df_op["Nome Curto"].iloc[0]
+
+    # Colunas de mês
+    _df_op["_Mes_ord"] = _df_op["Data_dt"].dt.to_period("M")
+    _df_op["_Mes_lbl"] = _df_op["Data_dt"].dt.strftime("%b/%Y")
+    _meses_ord = sorted(_df_op["_Mes_ord"].unique())
+    _mes_lbl_map = (
+        _df_op.drop_duplicates("_Mes_ord")
+        .set_index("_Mes_ord")["_Mes_lbl"]
+        .to_dict()
+    )
+
+    if len(_meses_ord) < 2:
+        st.warning("É necessário ao menos 2 meses de dados para análise de evolução.")
+        st.stop()
+
+    # ── Resumo mensal ─────────────────────────────────────────────────────────
+    _monthly = []
+    for _mp in _meses_ord:
+        _dfm = _df_op[_df_op["_Mes_ord"] == _mp]
+        _dias_u = _dfm["Data_dt"].dropna().drop_duplicates()
+        _horas_m = _dias_u.apply(lambda d: horas_turno(_turno_op, d)).sum()
+        _dias_m = len(_dias_u)
+        _kg = _dfm["Peso (KG)"].sum()
+        _un = _dfm["Qtd (UN)"].sum()
+        _monthly.append({
+            "Mês":                _mes_lbl_map[_mp],
+            "_ord":               _mp,
+            "Dias":               _dias_m,
+            "Horas":              round(_horas_m, 1),
+            "Total KG":           round(_kg, 1),
+            "Total UN":           int(_un),
+            "KG / Hora":          round(_kg / _horas_m, 2) if _horas_m > 0 else 0,
+            "KG / Dia":           round(_kg / _dias_m, 1) if _dias_m > 0 else 0,
+            "UN / Hora":          round(_un / _horas_m, 1) if _horas_m > 0 else 0,
+            "Itens Distintos":    _dfm["Cód Item"].nunique(),
+            "Máquinas Usadas":    _dfm["Máquina"].nunique(),
+            "Peso Médio/peça (g)": round(_dfm["Peso Médio/UN (g)"].mean(), 1),
+        })
+    _df_monthly = pd.DataFrame(_monthly)
+
+    # Tendência geral
+    _kg_ini = _df_monthly.iloc[0]["KG / Hora"]
+    _kg_fim = _df_monthly.iloc[-1]["KG / Hora"]
+    _delta_pct = (_kg_fim - _kg_ini) / _kg_ini * 100 if _kg_ini > 0 else 0
+    if _delta_pct > 3:
+        _tend_txt = f"📈 Melhorando  (+{_delta_pct:.1f}% de {_df_monthly.iloc[0]['Mês']} a {_df_monthly.iloc[-1]['Mês']})"
+        _tend_cor = "green"
+    elif _delta_pct < -3:
+        _tend_txt = f"📉 Piorando  ({_delta_pct:.1f}% de {_df_monthly.iloc[0]['Mês']} a {_df_monthly.iloc[-1]['Mês']})"
+        _tend_cor = "red"
+    else:
+        _tend_txt = f"➡️ Estável  ({_delta_pct:+.1f}% de {_df_monthly.iloc[0]['Mês']} a {_df_monthly.iloc[-1]['Mês']})"
+        _tend_cor = "gray"
+    st.markdown(f"**Tendência KG/hora:** :{_tend_cor}[{_tend_txt}]")
+
+    # Cards por mês com delta vs mês anterior
+    _med_evo = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟",
+                "1️⃣1️⃣", "1️⃣2️⃣"]
+    _n_mes = len(_df_monthly)
+    _cols_mes = st.columns(_n_mes)
+    for _i, (_, _row) in enumerate(_df_monthly.iterrows()):
+        with _cols_mes[_i]:
+            _dlt = None
+            if _i > 0:
+                _prev = _df_monthly.iloc[_i - 1]["KG / Hora"]
+                _curr = _row["KG / Hora"]
+                _dlt = f"{'▲' if _curr >= _prev else '▼'} {abs(_curr - _prev):.2f} vs anterior"
+            st.metric(
+                label=f"{_med_evo[_i] if _i < len(_med_evo) else ''} {_row['Mês']}",
+                value=f"{_row['KG / Hora']:.2f} KG/h",
+                delta=_dlt,
+            )
+
+    quebra_pagina()
+
+    # ── Gráficos mensais ──────────────────────────────────────────────────────
+    _col_e1, _col_e2 = st.columns(2)
+    with _col_e1:
+        st.subheader("KG / Hora por mês")
+        st.plotly_chart(
+            bar_chart(_df_monthly["Mês"], _df_monthly["KG / Hora"], fmt=".2f", cor="#4C9BE8"),
+            use_container_width=True,
+        )
+    with _col_e2:
+        st.subheader("KG / Dia por mês")
+        st.plotly_chart(
+            bar_chart(_df_monthly["Mês"], _df_monthly["KG / Dia"], fmt=".1f", cor="#5CB85C"),
+            use_container_width=True,
+        )
+
+    _col_e3, _col_e4 = st.columns(2)
+    with _col_e3:
+        st.subheader("Total KG produzido por mês")
+        st.plotly_chart(
+            bar_chart(_df_monthly["Mês"], _df_monthly["Total KG"], fmt=",.0f", cor="#F0AD4E"),
+            use_container_width=True,
+        )
+    with _col_e4:
+        st.subheader("Peso médio/peça (g) por mês")
+        st.caption("Peças mais pesadas = produtos maiores/mais complexos — máquina roda mais devagar.")
+        st.plotly_chart(
+            bar_chart(_df_monthly["Mês"], _df_monthly["Peso Médio/peça (g)"], fmt=".1f", cor="#D9534F"),
+            use_container_width=True,
+        )
+
+    quebra_pagina()
+
+    # ── Evolução diária (linha) ───────────────────────────────────────────────
+    st.subheader("📅 KG/hora dia a dia — curva de evolução")
+    st.caption("Cada ponto é um dia trabalhado. Ideal: pontos subindo ao longo do tempo.")
+    _df_daily = (
+        _df_op.groupby("Data_dt")
+        .agg(KG=("Peso (KG)", "sum"), UN=("Qtd (UN)", "sum"))
+        .reset_index()
+    )
+    _df_daily["Horas"] = _df_daily["Data_dt"].apply(lambda d: horas_turno(_turno_op, d))
+    _df_daily["KG/hora"] = (_df_daily["KG"] / _df_daily["Horas"]).round(2)
+    _df_daily["KG/dia"] = _df_daily["KG"].round(1)
+    _df_daily["Mês"] = _df_daily["Data_dt"].dt.strftime("%b/%Y")
+
+    _cor_meses = ["#4C9BE8", "#5CB85C", "#F0AD4E", "#D9534F",
+                  "#9B59B6", "#1ABC9C", "#E74C3C", "#F39C12",
+                  "#2ECC71", "#3498DB", "#E91E63", "#FF5722"]
+    _fig_line = go.Figure()
+    _media_geral = _df_daily["KG/hora"].mean()
+    _fig_line.add_hline(
+        y=_media_geral, line_dash="dot", line_color="gray",
+        annotation_text=f"Média {_media_geral:.2f}", annotation_position="bottom right",
+    )
+    for _ci, _mp in enumerate(_meses_ord):
+        _lbl = _mes_lbl_map[_mp]
+        _sub = _df_daily[_df_daily["Mês"] == _lbl]
+        _fig_line.add_trace(go.Scatter(
+            x=_sub["Data_dt"], y=_sub["KG/hora"],
+            mode="markers+lines", name=_lbl,
+            line=dict(color=_cor_meses[_ci % len(_cor_meses)]),
+            marker=dict(size=7),
+            hovertemplate="%{x|%d/%m}<br>%{y:.2f} KG/h<extra></extra>",
+        ))
+    _fig_line.update_layout(
+        height=380, margin=dict(t=10, b=10, l=10, r=10),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
+        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="KG/hora"),
+        xaxis=dict(title=""),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    st.plotly_chart(_fig_line, use_container_width=True)
+
+    quebra_pagina()
+
+    # ── Por máquina ───────────────────────────────────────────────────────────
+    st.subheader("🏭 KG/hora por máquina — qual ele domina?")
+    _df_maq_evo = (
+        _df_op.groupby("Máquina")
+        .agg(KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"))
+        .reset_index()
+    )
+    _df_maq_evo["KG/dia"] = (_df_maq_evo["KG"] / _df_maq_evo["Dias"]).round(1)
+    _df_maq_evo["Maq_curta"] = (
+        _df_maq_evo["Máquina"].str.extract(r"^(\d+)")[0].fillna("")
+        + " · "
+        + _df_maq_evo["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:20]
+    )
+    _df_maq_evo = _df_maq_evo.sort_values("KG/dia", ascending=False).reset_index(drop=True)
+
+    _col_mq1, _col_mq2 = st.columns(2)
+    with _col_mq1:
+        st.markdown("**KG / Dia em cada máquina**")
+        st.plotly_chart(
+            bar_chart(_df_maq_evo["Maq_curta"], _df_maq_evo["KG/dia"], fmt=".1f", cor="#4C9BE8"),
+            use_container_width=True,
+        )
+    with _col_mq2:
+        st.markdown("**Dias trabalhados em cada máquina**")
+        st.plotly_chart(
+            bar_chart(_df_maq_evo["Maq_curta"], _df_maq_evo["Dias"], fmt=".0f", cor="#9B59B6"),
+            use_container_width=True,
+        )
+
+    # Evolução por máquina mês a mês (só máquinas com ≥ 2 meses)
+    _df_maq_mes = (
+        _df_op.groupby(["Máquina", "_Mes_lbl"])
+        .agg(KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"))
+        .reset_index()
+    )
+    _df_maq_mes["KG/dia"] = (_df_maq_mes["KG"] / _df_maq_mes["Dias"]).round(1)
+    _maq_multi = _df_maq_mes.groupby("Máquina")["_Mes_lbl"].nunique()
+    _maq_multi = _maq_multi[_maq_multi >= 2].index.tolist()
+
+    if _maq_multi:
+        st.markdown("**Evolução do KG/dia por máquina mês a mês** *(máquinas com ≥ 2 meses)*")
+        _fig_maq = go.Figure()
+        for _ci, _maq in enumerate(_maq_multi):
+            _sub = _df_maq_mes[_df_maq_mes["Máquina"] == _maq].sort_values("_Mes_lbl")
+            _maq_s = _maq.split(" - ")[0] + " · " + (" - ".join(_maq.split(" - ")[1:]))[:18]
+            _fig_maq.add_trace(go.Scatter(
+                x=_sub["_Mes_lbl"], y=_sub["KG/dia"],
+                mode="markers+lines", name=_maq_s,
+                line=dict(color=_cor_meses[_ci % len(_cor_meses)]),
+                marker=dict(size=9),
+            ))
+        _fig_maq.update_layout(
+            height=320, margin=dict(t=10, b=10, l=10, r=10),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        )
+        st.plotly_chart(_fig_maq, use_container_width=True)
+
+    quebra_pagina()
+
+    # ── Top itens ─────────────────────────────────────────────────────────────
+    st.subheader("📦 Desempenho por item — quais produtos ele domina")
+    _df_item_evo = (
+        _df_op.groupby(["Cód Item", "Descrição Item"])
+        .agg(KG=("Peso (KG)", "sum"), UN=("Qtd (UN)", "sum"), Dias=("Data", "nunique"), Apts=("Data", "count"))
+        .reset_index()
+    )
+    _df_item_evo["KG/dia"] = (_df_item_evo["KG"] / _df_item_evo["Dias"]).round(1)
+    _df_item_evo["Desc_curta"] = _df_item_evo["Descrição Item"].str[:30]
+    _df_item_evo = _df_item_evo.sort_values("KG/dia", ascending=False).reset_index(drop=True)
+
+    _col_it1, _col_it2 = st.columns([3, 2])
+    with _col_it1:
+        st.markdown("**Top itens por KG/dia** (mostrando top 15)")
+        _top15 = _df_item_evo.head(15)
+        st.plotly_chart(
+            bar_chart(_top15["Desc_curta"], _top15["KG/dia"], fmt=".1f", cor="#F0AD4E", max_show=10),
+            use_container_width=True,
+        )
+    with _col_it2:
+        st.markdown("**Itens distintos produzidos por mês**")
+        st.caption("Mais itens = mais troca de setup = possível queda de eficiência.")
+        st.plotly_chart(
+            bar_chart(
+                _df_monthly["Mês"], _df_monthly["Itens Distintos"],
+                fmt=".0f", cor="#D9534F",
+            ),
+            use_container_width=True,
+        )
+
+    quebra_pagina()
+
+    # ── Consistência: box por mês ─────────────────────────────────────────────
+    st.subheader("📊 Consistência diária por mês")
+    st.caption("Quanto menor o espalhamento, mais consistente o operador. Pontos fora = dias ruins ou excepcionais.")
+    _fig_box = go.Figure()
+    for _ci, _mp in enumerate(_meses_ord):
+        _lbl = _mes_lbl_map[_mp]
+        _sub = _df_daily[_df_daily["Mês"] == _lbl]["KG/hora"]
+        _fig_box.add_trace(go.Box(
+            y=_sub, name=_lbl,
+            marker_color=_cor_meses[_ci % len(_cor_meses)],
+            boxpoints="all", jitter=0.3, pointpos=-1.5,
+        ))
+    _fig_box.update_layout(
+        height=360, margin=dict(t=10, b=10, l=10, r=10),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
+        yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="KG/hora"),
+        showlegend=False,
+    )
+    st.plotly_chart(_fig_box, use_container_width=True)
+
+    # ── Tabela resumo mensal ──────────────────────────────────────────────────
+    quebra_pagina()
+    st.subheader("📋 Tabela resumo mensal")
+    st.dataframe(
+        _df_monthly.drop(columns=["_ord"]),
+        use_container_width=True, hide_index=True,
+    )
+
+
+# ── Aba 6: KG / Dia ──────────────────────────────────────────────────────────
+with aba6:
     st.header("📅 Ranking por KG / Dia")
     st.caption("Média de quilos produzidos por dia trabalhado — métrica que mostra ritmo diário independente do turno.")
 
@@ -1048,8 +1345,8 @@ with aba5:
     )
 
 
-# ── Aba 6: Resumo Geral ──────────────────────────────────────────────────────
-with aba6:
+# ── Aba 7: Resumo Geral ──────────────────────────────────────────────────────
+with aba7:
     st.header("📊 Resumo Geral de Produção")
     st.caption("Soma total produzida no período analisado, por operador e por máquina.")
 
@@ -1144,8 +1441,8 @@ with aba6:
     c4.metric("🏭 Máquinas", df["Máquina"].nunique())
 
 
-# ── Aba 7: Dados Brutos ───────────────────────────────────────────────────────
-with aba7:
+# ── Aba 8: Dados Brutos ───────────────────────────────────────────────────────
+with aba8:
     st.header("Base de Dados Unificada")
 
     col1, col2, col3 = st.columns(3)
