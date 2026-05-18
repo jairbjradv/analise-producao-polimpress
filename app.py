@@ -1111,64 +1111,118 @@ with aba5:
     quebra_pagina()
 
     # ── Por máquina ───────────────────────────────────────────────────────────
-    st.subheader("🏭 KG/hora por máquina — qual ele domina?")
-    _df_maq_evo = (
-        _df_op.groupby("Máquina")
-        .agg(KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"))
-        .reset_index()
-    )
-    _df_maq_evo["KG/dia"] = (_df_maq_evo["KG"] / _df_maq_evo["Dias"]).round(1)
-    _df_maq_evo["Maq_curta"] = (
-        _df_maq_evo["Máquina"].str.extract(r"^(\d+)")[0].fillna("")
-        + " · "
-        + _df_maq_evo["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:20]
-    )
-    _df_maq_evo = _df_maq_evo.sort_values("KG/dia", ascending=False).reset_index(drop=True)
+    st.subheader("🏭 Máquinas por mês — presença e desempenho")
 
-    _col_mq1, _col_mq2 = st.columns(2)
-    with _col_mq1:
-        st.markdown("**KG / Dia em cada máquina**")
-        st.plotly_chart(
-            bar_chart(_df_maq_evo["Maq_curta"], _df_maq_evo["KG/dia"], fmt=".1f", cor="#4C9BE8"),
-            use_container_width=True,
-        )
-    with _col_mq2:
-        st.markdown("**Dias trabalhados em cada máquina**")
-        st.plotly_chart(
-            bar_chart(_df_maq_evo["Maq_curta"], _df_maq_evo["Dias"], fmt=".0f", cor="#9B59B6"),
-            use_container_width=True,
-        )
-
-    # Evolução por máquina mês a mês (só máquinas com ≥ 2 meses)
+    # Base: máquina × mês — com KG, dias e KG/dia
     _df_maq_mes = (
-        _df_op.groupby(["Máquina", "_Mes_lbl"])
-        .agg(KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"))
+        _df_op.groupby(["Máquina", "_Mes_ord", "_Mes_lbl"])
+        .agg(KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"), UN=("Qtd (UN)", "sum"))
         .reset_index()
     )
     _df_maq_mes["KG/dia"] = (_df_maq_mes["KG"] / _df_maq_mes["Dias"]).round(1)
-    _maq_multi = _df_maq_mes.groupby("Máquina")["_Mes_lbl"].nunique()
-    _maq_multi = _maq_multi[_maq_multi >= 2].index.tolist()
+    _df_maq_mes["Maq_curta"] = (
+        _df_maq_mes["Máquina"].str.extract(r"^(\d+)")[0].fillna("")
+        + " · "
+        + _df_maq_mes["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:18]
+    )
 
-    if _maq_multi:
-        st.markdown("**Evolução do KG/dia por máquina mês a mês** *(máquinas com ≥ 2 meses)*")
-        _fig_maq = go.Figure()
-        for _ci, _maq in enumerate(_maq_multi):
-            _sub = _df_maq_mes[_df_maq_mes["Máquina"] == _maq].sort_values("_Mes_lbl")
-            _maq_s = _maq.split(" - ")[0] + " · " + (" - ".join(_maq.split(" - ")[1:]))[:18]
-            _fig_maq.add_trace(go.Scatter(
-                x=_sub["_Mes_lbl"], y=_sub["KG/dia"],
-                mode="markers+lines", name=_maq_s,
-                line=dict(color=_cor_meses[_ci % len(_cor_meses)]),
-                marker=dict(size=9),
-            ))
-        _fig_maq.update_layout(
-            height=320, margin=dict(t=10, b=10, l=10, r=10),
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white"),
-            yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        )
-        st.plotly_chart(_fig_maq, use_container_width=True)
+    # ── Tabela de presença: máquina × mês ────────────────────────────────────
+    st.markdown("#### 📅 Quantos dias trabalhou em cada máquina por mês")
+    _pivot_dias = (
+        _df_maq_mes.pivot_table(index="Maq_curta", columns="_Mes_lbl", values="Dias", aggfunc="sum", fill_value=0)
+    )
+    # Ordena colunas por mês cronológico
+    _col_order = [_mes_lbl_map[m] for m in _meses_ord if _mes_lbl_map[m] in _pivot_dias.columns]
+    _pivot_dias = _pivot_dias[_col_order]
+    # Adiciona total
+    _pivot_dias["Total dias"] = _pivot_dias.sum(axis=1)
+    _pivot_dias = _pivot_dias.sort_values("Total dias", ascending=False)
+    st.dataframe(_pivot_dias, use_container_width=True)
+
+    # ── Tabela KG/dia: máquina × mês ─────────────────────────────────────────
+    st.markdown("#### 📦 KG/dia em cada máquina por mês")
+    _pivot_kgdia = (
+        _df_maq_mes.pivot_table(index="Maq_curta", columns="_Mes_lbl", values="KG/dia", aggfunc="mean")
+        .round(1)
+    )
+    _pivot_kgdia = _pivot_kgdia[[c for c in _col_order if c in _pivot_kgdia.columns]]
+    # Tendência por linha: seta e %
+    def _row_tend(row):
+        vals = row.dropna()
+        if len(vals) < 2:
+            return "—"
+        ini, fim = vals.iloc[0], vals.iloc[-1]
+        pct = (fim - ini) / ini * 100 if ini > 0 else 0
+        seta = "📈" if pct > 3 else ("📉" if pct < -3 else "➡️")
+        return f"{seta} {pct:+.1f}%"
+    _pivot_kgdia["Tendência"] = _pivot_kgdia.apply(_row_tend, axis=1)
+    st.dataframe(_pivot_kgdia, use_container_width=True)
+
+    quebra_pagina()
+
+    # ── Gráfico de linha: KG/dia por máquina ao longo dos meses ──────────────
+    st.markdown("#### 📈 Evolução do KG/dia por máquina mês a mês")
+    _todas_maqs = sorted(_df_maq_mes["Máquina"].unique())
+    _maq_multi = _df_maq_mes.groupby("Máquina")["_Mes_lbl"].nunique()
+    _maq_multi_lst = _maq_multi[_maq_multi >= 2].index.tolist()
+
+    _col_graf, _col_single = st.columns([3, 1])
+    with _col_graf:
+        if _maq_multi_lst:
+            st.caption("Máquinas com presença em ≥ 2 meses — clique na legenda para ocultar/exibir")
+            _fig_maq = go.Figure()
+            for _ci, _maq in enumerate(_maq_multi_lst):
+                _sub = _df_maq_mes[_df_maq_mes["Máquina"] == _maq].sort_values("_Mes_ord")
+                _maq_s = _sub["Maq_curta"].iloc[0]
+                _fig_maq.add_trace(go.Scatter(
+                    x=_sub["_Mes_lbl"], y=_sub["KG/dia"],
+                    mode="markers+lines+text", name=_maq_s,
+                    text=_sub["KG/dia"].apply(lambda v: f"{v:.0f}"),
+                    textposition="top center",
+                    line=dict(color=_cor_meses[_ci % len(_cor_meses)], width=2),
+                    marker=dict(size=10),
+                    hovertemplate="%{x}<br>%{y:.1f} KG/dia<extra>" + _maq_s + "</extra>",
+                ))
+            _fig_maq.update_layout(
+                height=360, margin=dict(t=30, b=10, l=10, r=10),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="KG/dia"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            )
+            st.plotly_chart(_fig_maq, use_container_width=True)
+
+    with _col_single:
+        st.caption("Máquinas esporádicas (1 mês)")
+        _maq_1mes = _maq_multi[_maq_multi == 1].index.tolist()
+        if _maq_1mes:
+            _df_esp = _df_maq_mes[_df_maq_mes["Máquina"].isin(_maq_1mes)][
+                ["Maq_curta", "_Mes_lbl", "Dias", "KG/dia"]
+            ].sort_values("KG/dia", ascending=False)
+            st.dataframe(_df_esp.rename(columns={
+                "Maq_curta": "Máquina", "_Mes_lbl": "Mês",
+                "Dias": "Dias", "KG/dia": "KG/dia",
+            }), use_container_width=True, hide_index=True)
+        else:
+            st.info("Todas as máquinas têm ≥ 2 meses.")
+
+    # ── Cards de tendência por máquina principal ──────────────────────────────
+    st.markdown("#### 🏅 Tendência individual por máquina")
+    if _maq_multi_lst:
+        _cols_maq_tend = st.columns(min(len(_maq_multi_lst), 4))
+        for _ci, _maq in enumerate(_maq_multi_lst):
+            _sub = _df_maq_mes[_df_maq_mes["Máquina"] == _maq].sort_values("_Mes_ord")
+            _maq_s = _sub["Maq_curta"].iloc[0]
+            _ini_v = _sub["KG/dia"].iloc[0]
+            _fim_v = _sub["KG/dia"].iloc[-1]
+            _pct_v = (_fim_v - _ini_v) / _ini_v * 100 if _ini_v > 0 else 0
+            _dlt_str = f"{'📈' if _pct_v > 3 else ('📉' if _pct_v < -3 else '➡️')} {_pct_v:+.1f}%"
+            with _cols_maq_tend[_ci % 4]:
+                st.metric(
+                    label=_maq_s,
+                    value=f"{_fim_v:.1f} KG/dia",
+                    delta=f"{_dlt_str}  ({_sub['_Mes_lbl'].iloc[0]} → {_sub['_Mes_lbl'].iloc[-1]})",
+                )
 
     quebra_pagina()
 
