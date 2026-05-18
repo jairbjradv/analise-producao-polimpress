@@ -1279,6 +1279,103 @@ with aba5:
     )
     st.plotly_chart(_fig_box, use_container_width=True)
 
+    # ── Resumo automático de consistência ─────────────────────────────────────
+    st.markdown("#### 🧠 Análise automática da consistência")
+
+    _stats_meses = []
+    for _ci, _mp in enumerate(_meses_ord):
+        _lbl = _mes_lbl_map[_mp]
+        _vals = _df_daily[_df_daily["Mês"] == _lbl]["KG/hora"]
+        if len(_vals) == 0:
+            continue
+        _stats_meses.append({
+            "lbl":    _lbl,
+            "media":  _vals.mean(),
+            "mediana":_vals.median(),
+            "std":    _vals.std(),
+            "cv":     _vals.std() / _vals.mean() * 100 if _vals.mean() > 0 else 0,
+            "min":    _vals.min(),
+            "max":    _vals.max(),
+            "dias":   len(_vals),
+            "dias_ruins": int((_vals < _vals.mean() * 0.75).sum()),   # dias < 75% da média
+            "dias_otimos": int((_vals > _vals.mean() * 1.25).sum()),  # dias > 125% da média
+        })
+
+    _media_global = _df_daily["KG/hora"].mean()
+
+    for _si, _s in enumerate(_stats_meses):
+        _positivos = []
+        _negativos = []
+
+        # Comparação com mês anterior
+        if _si > 0:
+            _prev_s = _stats_meses[_si - 1]
+            _delta_media = _s["media"] - _prev_s["media"]
+            _delta_cv    = _s["cv"]    - _prev_s["cv"]
+            if _delta_media > 1:
+                _positivos.append(f"média KG/hora subiu **{_delta_media:+.1f}** vs {_prev_s['lbl']}")
+            elif _delta_media < -1:
+                _negativos.append(f"média KG/hora caiu **{_delta_media:.1f}** vs {_prev_s['lbl']}")
+            if _delta_cv < -5:
+                _positivos.append(f"ficou **mais consistente** (variação caiu {abs(_delta_cv):.0f}pp)")
+            elif _delta_cv > 5:
+                _negativos.append(f"ficou **mais irregular** (variação subiu {_delta_cv:.0f}pp)")
+
+        # Comparação com média global
+        if _s["media"] > _media_global * 1.05:
+            _positivos.append(f"média do mês **acima** da média geral ({_s['media']:.1f} vs {_media_global:.1f} KG/h)")
+        elif _s["media"] < _media_global * 0.95:
+            _negativos.append(f"média do mês **abaixo** da média geral ({_s['media']:.1f} vs {_media_global:.1f} KG/h)")
+
+        # Dias ruins e ótimos
+        if _s["dias_otimos"] > 0:
+            _positivos.append(f"**{_s['dias_otimos']} dia(s) excepcional(is)** acima de {_s['media']*1.25:.0f} KG/h")
+        if _s["dias_ruins"] > 0:
+            _negativos.append(f"**{_s['dias_ruins']} dia(s) ruim(ns)** abaixo de {_s['media']*0.75:.0f} KG/h")
+
+        # Amplitude
+        _amplitude = _s["max"] - _s["min"]
+        if _amplitude > _s["media"] * 1.2:
+            _negativos.append(f"amplitude alta: de **{_s['min']:.1f}** a **{_s['max']:.1f}** KG/h ({_amplitude:.1f} de variação)")
+
+        # CV (coeficiente de variação) absoluto
+        if _s["cv"] < 20:
+            _positivos.append(f"mês com **boa regularidade** (CV={_s['cv']:.0f}%)")
+        elif _s["cv"] > 40:
+            _negativos.append(f"mês **muito irregular** (CV={_s['cv']:.0f}%)")
+
+        # Tendência geral do mês
+        if _si == len(_stats_meses) - 1 and _si > 0:
+            _tend_geral_delta = _stats_meses[-1]["media"] - _stats_meses[0]["media"]
+            _tend_geral_pct   = _tend_geral_delta / _stats_meses[0]["media"] * 100
+            if _tend_geral_pct > 3:
+                _positivos.append(f"**tendência geral positiva:** +{_tend_geral_pct:.1f}% do primeiro ao último mês")
+            elif _tend_geral_pct < -3:
+                _negativos.append(f"**tendência geral negativa:** {_tend_geral_pct:.1f}% do primeiro ao último mês")
+
+        # Montagem do card de texto
+        _emoji_mes = "🥇" if _s["media"] == max(x["media"] for x in _stats_meses) else \
+                     "🥉" if _s["media"] == min(x["media"] for x in _stats_meses) else "📅"
+        with st.expander(
+            f"{_emoji_mes} **{_s['lbl']}** — média {_s['media']:.1f} KG/h · CV {_s['cv']:.0f}% · {_s['dias']} dias",
+            expanded=True,
+        ):
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                if _positivos:
+                    st.markdown("✅ **Pontos positivos**")
+                    for _p in _positivos:
+                        st.markdown(f"- {_p}")
+                else:
+                    st.markdown("✅ *Nenhum destaque positivo neste mês.*")
+            with _c2:
+                if _negativos:
+                    st.markdown("⚠️ **Pontos de atenção**")
+                    for _n in _negativos:
+                        st.markdown(f"- {_n}")
+                else:
+                    st.markdown("⚠️ *Nenhum ponto de atenção neste mês.*")
+
     # ── Tabela resumo mensal ──────────────────────────────────────────────────
     quebra_pagina()
     st.subheader("📋 Tabela resumo mensal")
