@@ -1282,23 +1282,41 @@ with aba5:
     # ── Resumo automático de consistência ─────────────────────────────────────
     st.markdown("#### 🧠 Análise automática da consistência")
 
+    # Agrega máquinas usadas por dia (para exibir junto com dias ruins)
+    _df_maq_por_dia = (
+        _df_op.groupby("Data_dt")["Máquina"]
+        .apply(lambda x: ", ".join(sorted(x.str.extract(r"^(\d+)")[0].dropna().unique())))
+        .reset_index()
+        .rename(columns={"Máquina": "Máqs"})
+    )
+    _df_daily_maq = _df_daily.merge(_df_maq_por_dia, on="Data_dt", how="left")
+
     _stats_meses = []
     for _ci, _mp in enumerate(_meses_ord):
         _lbl = _mes_lbl_map[_mp]
-        _vals = _df_daily[_df_daily["Mês"] == _lbl]["KG/hora"]
+        _sub_mes = _df_daily_maq[_df_daily_maq["Mês"] == _lbl]
+        _vals = _sub_mes["KG/hora"]
         if len(_vals) == 0:
             continue
+        _limiar_ruim  = _vals.mean() * 0.75
+        _limiar_otimo = _vals.mean() * 1.25
+        _df_ruins  = _sub_mes[_sub_mes["KG/hora"] < _limiar_ruim].sort_values("Data_dt")
+        _df_otimos = _sub_mes[_sub_mes["KG/hora"] > _limiar_otimo].sort_values("Data_dt")
         _stats_meses.append({
-            "lbl":    _lbl,
-            "media":  _vals.mean(),
-            "mediana":_vals.median(),
-            "std":    _vals.std(),
-            "cv":     _vals.std() / _vals.mean() * 100 if _vals.mean() > 0 else 0,
-            "min":    _vals.min(),
-            "max":    _vals.max(),
-            "dias":   len(_vals),
-            "dias_ruins": int((_vals < _vals.mean() * 0.75).sum()),   # dias < 75% da média
-            "dias_otimos": int((_vals > _vals.mean() * 1.25).sum()),  # dias > 125% da média
+            "lbl":         _lbl,
+            "media":       _vals.mean(),
+            "mediana":     _vals.median(),
+            "std":         _vals.std(),
+            "cv":          _vals.std() / _vals.mean() * 100 if _vals.mean() > 0 else 0,
+            "min":         _vals.min(),
+            "max":         _vals.max(),
+            "dias":        len(_vals),
+            "dias_ruins":  len(_df_ruins),
+            "dias_otimos": len(_df_otimos),
+            "df_ruins":    _df_ruins,   # DataFrame com detalhes
+            "df_otimos":   _df_otimos,
+            "limiar_ruim": _limiar_ruim,
+            "limiar_otimo":_limiar_otimo,
         })
 
     _media_global = _df_daily["KG/hora"].mean()
@@ -1327,11 +1345,11 @@ with aba5:
         elif _s["media"] < _media_global * 0.95:
             _negativos.append(f"média do mês **abaixo** da média geral ({_s['media']:.1f} vs {_media_global:.1f} KG/h)")
 
-        # Dias ruins e ótimos
+        # Dias ruins e ótimos (só contadores para os bullets — detalhes em tabela abaixo)
         if _s["dias_otimos"] > 0:
-            _positivos.append(f"**{_s['dias_otimos']} dia(s) excepcional(is)** acima de {_s['media']*1.25:.0f} KG/h")
+            _positivos.append(f"**{_s['dias_otimos']} dia(s) excepcional(is)** acima de {_s['limiar_otimo']:.0f} KG/h")
         if _s["dias_ruins"] > 0:
-            _negativos.append(f"**{_s['dias_ruins']} dia(s) ruim(ns)** abaixo de {_s['media']*0.75:.0f} KG/h")
+            _negativos.append(f"**{_s['dias_ruins']} dia(s) ruim(ns)** abaixo de {_s['limiar_ruim']:.0f} KG/h — veja detalhes abaixo ↓")
 
         # Amplitude
         _amplitude = _s["max"] - _s["min"]
@@ -1375,6 +1393,23 @@ with aba5:
                         st.markdown(f"- {_n}")
                 else:
                     st.markdown("⚠️ *Nenhum ponto de atenção neste mês.*")
+
+            # Tabela de dias ruins com datas e máquinas
+            if _s["dias_ruins"] > 0:
+                st.markdown(f"**📋 Dias ruins do mês (< {_s['limiar_ruim']:.0f} KG/h):**")
+                _df_r = _s["df_ruins"][["Data_dt", "KG/hora", "KG/dia", "Máqs"]].copy()
+                _df_r["Data"] = _df_r["Data_dt"].dt.strftime("%d/%m/%Y (%a)").str.replace(
+                    "Mon","Seg").str.replace("Tue","Ter").str.replace("Wed","Qua").str.replace(
+                    "Thu","Qui").str.replace("Fri","Sex").str.replace("Sat","Sáb").str.replace("Sun","Dom")
+                _df_r["KG/hora"] = _df_r["KG/hora"].round(1)
+                _df_r["KG/dia"]  = _df_r["KG/dia"].round(1)
+                _df_r["vs média"] = (_df_r["KG/hora"] - _s["media"]).round(1).apply(lambda v: f"{v:+.1f}")
+                st.dataframe(
+                    _df_r[["Data", "Máqs", "KG/hora", "KG/dia", "vs média"]].rename(columns={
+                        "Máqs": "Máquina(s)", "vs média": "vs Média (KG/h)"
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
 
     # ── Tabela resumo mensal ──────────────────────────────────────────────────
     quebra_pagina()
