@@ -918,6 +918,404 @@ with aba3:
         st.info("Nenhum produto compartilhado entre operadores nos PDFs carregados.")
 
 
+# ── Aba 4: Top Produção ───────────────────────────────────────────────────────
+with aba4:
+    st.header("🏅 Top Produção — Ranking por Volume Total")
+    st.caption("Quem e quais máquinas produziram mais em quantidade absoluta (KG e UN) no período analisado.")
+
+    _med5 = ["🥇", "🥈", "🥉"]
+
+    def _cards_expander(df_rank, label_col, value_col, value_fmt, value_suffix, expander_label, delta_col=None, delta_fmt=None, delta_suffix=""):
+        """Renderiza top-3 cards + expander para o restante."""
+        n = len(df_rank)
+        top3 = min(n, 3)
+        cols = st.columns(top3)
+        for i in range(top3):
+            row = df_rank.iloc[i]
+            val_str = f"{row[value_col]:{value_fmt}}{value_suffix}"
+            dlt_str = None
+            if delta_col and delta_fmt:
+                dlt_str = f"{row[delta_col]:{delta_fmt}}{delta_suffix}"
+            with cols[i]:
+                st.metric(
+                    label=f"{_med5[i]} {row[label_col]}",
+                    value=val_str,
+                    delta=dlt_str,
+                )
+        if n > 3:
+            with st.expander(expander_label):
+                rest = df_rank.iloc[3:]
+                cols2 = st.columns(min(len(rest), 5))
+                for j, (_, row) in enumerate(rest.iterrows()):
+                    val_str = f"{row[value_col]:{value_fmt}}{value_suffix}"
+                    dlt_str = None
+                    if delta_col and delta_fmt:
+                        dlt_str = f"{row[delta_col]:{delta_fmt}}{delta_suffix}"
+                    with cols2[j % 5]:
+                        st.metric(
+                            label=row[label_col],
+                            value=val_str,
+                            delta=dlt_str,
+                        )
+
+    # ── Operadores ────────────────────────────────────────────────────────────
+    st.subheader("👷 Ranking de Operadores")
+    op_totais = (
+        df.groupby(["Operador", "Nome Curto"])
+        .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"))
+        .reset_index()
+    )
+
+    col_op1, col_op2 = st.columns(2)
+
+    with col_op1:
+        st.markdown("#### 📦 Total de KG produzido")
+        op_kg = op_totais.sort_values("Total_KG", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            op_kg,
+            label_col="Nome Curto",
+            value_col="Total_KG",
+            value_fmt=",.0f",
+            value_suffix=" KG",
+            expander_label=f"Ver todos os {len(op_kg)} operadores (KG)",
+            delta_col="Total_UN",
+            delta_fmt=",.0f",
+            delta_suffix=" UN",
+        )
+        st.plotly_chart(
+            bar_chart(op_kg["Nome Curto"], op_kg["Total_KG"], fmt=",.0f", cor="#4C9BE8", max_show=10),
+            use_container_width=True,
+        )
+
+    with col_op2:
+        st.markdown("#### 🔢 Total de UN produzido")
+        op_un = op_totais.sort_values("Total_UN", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            op_un,
+            label_col="Nome Curto",
+            value_col="Total_UN",
+            value_fmt=",.0f",
+            value_suffix=" UN",
+            expander_label=f"Ver todos os {len(op_un)} operadores (UN)",
+            delta_col="Total_KG",
+            delta_fmt=",.0f",
+            delta_suffix=" KG",
+        )
+        st.plotly_chart(
+            bar_chart(op_un["Nome Curto"], op_un["Total_UN"], fmt=",.0f", cor="#5CB85C", max_show=10),
+            use_container_width=True,
+        )
+
+    quebra_pagina()
+
+    # ── Máquinas ──────────────────────────────────────────────────────────────
+    st.subheader("🏭 Ranking de Máquinas")
+    maq_totais = (
+        df.groupby("Máquina")
+        .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"))
+        .reset_index()
+    )
+    maq_totais["Máquina Curta"] = (
+        maq_totais["Máquina"].str.extract(r"^(\d+)")[0].fillna("")
+        + " - "
+        + maq_totais["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:18]
+    )
+    maq_totais["Nº Máquina"] = maq_totais["Máquina"].str.extract(r"^(\d+)")[0].fillna(maq_totais["Máquina"])
+
+    col_mq1, col_mq2 = st.columns(2)
+
+    with col_mq1:
+        st.markdown("#### 📦 Total de KG por Máquina")
+        maq_kg = maq_totais.sort_values("Total_KG", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            maq_kg,
+            label_col="Nº Máquina",
+            value_col="Total_KG",
+            value_fmt=",.0f",
+            value_suffix=" KG",
+            expander_label=f"Ver todas as {len(maq_kg)} máquinas (KG)",
+            delta_col="Total_UN",
+            delta_fmt=",.0f",
+            delta_suffix=" UN",
+        )
+        st.plotly_chart(
+            bar_chart(maq_kg["Máquina Curta"], maq_kg["Total_KG"], fmt=",.0f", cor="#4C9BE8", max_show=5),
+            use_container_width=True,
+        )
+
+    with col_mq2:
+        st.markdown("#### 🔢 Total de UN por Máquina")
+        maq_un = maq_totais.sort_values("Total_UN", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            maq_un,
+            label_col="Nº Máquina",
+            value_col="Total_UN",
+            value_fmt=",.0f",
+            value_suffix=" UN",
+            expander_label=f"Ver todas as {len(maq_un)} máquinas (UN)",
+            delta_col="Total_KG",
+            delta_fmt=",.0f",
+            delta_suffix=" KG",
+        )
+        st.plotly_chart(
+            bar_chart(maq_un["Máquina Curta"], maq_un["Total_UN"], fmt=",.0f", cor="#5CB85C", max_show=5),
+            use_container_width=True,
+        )
+# ── Aba 6: KG / Dia ──────────────────────────────────────────────────────────
+with aba6:
+    st.header("📅 Ranking por KG / Dia")
+    st.caption("Média de quilos produzidos por dia trabalhado — métrica que mostra ritmo diário independente do turno.")
+
+    _med_dia = ["🥇", "🥈", "🥉"]
+
+    def _cards_kgdia(df_rank, label_col, value_col, value_suffix, extra_col, extra_suffix, expander_txt, n_cols=5):
+        n = len(df_rank)
+        top3 = min(n, 3)
+        cols = st.columns(top3)
+        for i in range(top3):
+            row = df_rank.iloc[i]
+            with cols[i]:
+                st.metric(
+                    label=f"{_med_dia[i]} {row[label_col]}",
+                    value=f"{row[value_col]:,.1f} {value_suffix}",
+                    delta=f"{row[extra_col]:,.1f} {extra_suffix}" if extra_col else None,
+                )
+        if n > 3:
+            with st.expander(expander_txt):
+                rest = df_rank.iloc[3:]
+                cols2 = st.columns(min(len(rest), n_cols))
+                for j, (_, row) in enumerate(rest.iterrows()):
+                    with cols2[j % n_cols]:
+                        st.metric(
+                            label=row[label_col],
+                            value=f"{row[value_col]:,.1f} {value_suffix}",
+                            delta=f"{row[extra_col]:,.1f} {extra_suffix}" if extra_col else None,
+                        )
+
+    # ── Operadores ────────────────────────────────────────────────────────────
+    st.subheader("👷 Operadores — KG / Dia")
+
+    op_dia = resumo.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
+
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        st.markdown("#### 📦 KG / Dia")
+        _cards_kgdia(
+            op_dia, "Nome Curto", "KG / Dia", "KG/dia",
+            "KG / Hora", "KG/hora",
+            f"Ver todos os {len(op_dia)} operadores",
+        )
+        st.plotly_chart(
+            bar_chart(op_dia["Nome Curto"], op_dia["KG / Dia"], fmt=",.1f", cor="#4C9BE8", max_show=10),
+            use_container_width=True,
+        )
+
+    with col_d2:
+        st.markdown("#### 🕐 Horas trabalhadas no período")
+        op_horas = resumo.sort_values("Horas Trabalhadas", ascending=False).reset_index(drop=True)
+        _cards_kgdia(
+            op_horas, "Nome Curto", "Horas Trabalhadas", "h",
+            "Dias Trabalhados", "dias",
+            f"Ver todos os {len(op_horas)} operadores",
+        )
+        st.plotly_chart(
+            bar_chart(op_horas["Nome Curto"], op_horas["Horas Trabalhadas"], fmt=",.0f", cor="#F0AD4E", max_show=10),
+            use_container_width=True,
+        )
+
+    st.divider()
+
+    # ── Tabela resumo operadores ──────────────────────────────────────────────
+    st.subheader("📋 Tabela completa — Operadores")
+    st.dataframe(
+        op_dia[[
+            "Nome Curto", "Turno", "Dias Trabalhados", "Horas Trabalhadas",
+            "KG / Dia", "KG / Hora", "UN / Hora", "Total_KG", "Total_UN",
+        ]].rename(columns={
+            "Nome Curto": "Operador",
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+        }),
+        use_container_width=True, hide_index=True,
+    )
+
+    quebra_pagina()
+
+    # ── Máquinas ──────────────────────────────────────────────────────────────
+    st.subheader("🏭 Máquinas — KG / Dia")
+
+    maq_dia = df_maq_resumo_g.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
+
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.markdown("#### 📦 KG / Dia por Máquina")
+        _cards_kgdia(
+            maq_dia, "Nº Máquina", "KG / Dia", "KG/dia",
+            "UN / Dia", "UN/dia",
+            f"Ver todas as {len(maq_dia)} máquinas",
+            n_cols=4,
+        )
+        st.plotly_chart(
+            bar_chart(maq_dia["Máquina Curta"], maq_dia["KG / Dia"], fmt=",.1f", cor="#4C9BE8", max_show=5),
+            use_container_width=True,
+        )
+
+    with col_m2:
+        st.markdown("#### 🔢 UN / Dia por Máquina")
+        maq_un_dia = df_maq_resumo_g.sort_values("UN / Dia", ascending=False).reset_index(drop=True)
+        _cards_kgdia(
+            maq_un_dia, "Nº Máquina", "UN / Dia", "UN/dia",
+            "KG / Dia", "KG/dia",
+            f"Ver todas as {len(maq_un_dia)} máquinas",
+            n_cols=4,
+        )
+        st.plotly_chart(
+            bar_chart(maq_un_dia["Máquina Curta"], maq_un_dia["UN / Dia"], fmt=",.0f", cor="#5CB85C", max_show=5),
+            use_container_width=True,
+        )
+
+    st.divider()
+
+    st.subheader("📋 Tabela completa — Máquinas")
+    st.dataframe(
+        maq_dia[[
+            "Nº Máquina", "Máquina", "Dias_Ativas", "KG / Dia", "UN / Dia",
+            "Total_KG", "Total_UN", "Melhor Op", "Melhor KG/Dia",
+        ]].rename(columns={
+            "Nº Máquina": "Máq.",
+            "Dias_Ativas": "Dias Ativas",
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+            "Melhor Op": "Melhor Operador",
+        }),
+        use_container_width=True, hide_index=True,
+    )
+
+
+# ── Aba 7: Resumo Geral ──────────────────────────────────────────────────────
+with aba7:
+    st.header("📊 Resumo Geral de Produção")
+    st.caption("Soma total produzida no período analisado, por operador e por máquina.")
+
+    # ── Tabela de Operadores ──────────────────────────────────────────────────
+    st.subheader("👷 Produção por Operador")
+
+    op_resumo = (
+        df.groupby(["Operador", "Nome Curto", "Turno"])
+        .agg(
+            Total_KG=("Peso (KG)", "sum"),
+            Total_UN=("Qtd (UN)", "sum"),
+            Apontamentos=("Cód Item", "count"),
+        )
+        .reset_index()
+        .sort_values("Total_KG", ascending=False)
+        .reset_index(drop=True)
+    )
+    op_resumo.index = op_resumo.index + 1  # começa em 1
+
+    # Linha de total
+    total_op = pd.DataFrame([{
+        "Operador": "─── TOTAL ───",
+        "Nome Curto": "TOTAL",
+        "Turno": "",
+        "Total_KG": op_resumo["Total_KG"].sum(),
+        "Total_UN": op_resumo["Total_UN"].sum(),
+        "Apontamentos": op_resumo["Apontamentos"].sum(),
+    }])
+    total_op.index = [""]
+
+    df_op_exib = pd.concat([
+        op_resumo[["Operador", "Turno", "Total_KG", "Total_UN", "Apontamentos"]],
+        total_op[["Operador", "Turno", "Total_KG", "Total_UN", "Apontamentos"]],
+    ])
+
+    st.dataframe(
+        df_op_exib.rename(columns={
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+        }),
+        use_container_width=True,
+    )
+
+    quebra_pagina()
+
+    # ── Tabela de Máquinas ────────────────────────────────────────────────────
+    st.subheader("🏭 Produção por Máquina")
+
+    maq_resumo = (
+        df.groupby("Máquina")
+        .agg(
+            Total_KG=("Peso (KG)", "sum"),
+            Total_UN=("Qtd (UN)", "sum"),
+            Apontamentos=("Cód Item", "count"),
+            Operadores=("Nome Curto", lambda x: len(x.unique())),
+        )
+        .reset_index()
+        .sort_values("Total_KG", ascending=False)
+        .reset_index(drop=True)
+    )
+    maq_resumo.index = maq_resumo.index + 1
+
+    total_maq = pd.DataFrame([{
+        "Máquina": "─── TOTAL ───",
+        "Total_KG": maq_resumo["Total_KG"].sum(),
+        "Total_UN": maq_resumo["Total_UN"].sum(),
+        "Apontamentos": maq_resumo["Apontamentos"].sum(),
+        "Operadores": df["Nome Curto"].nunique(),
+    }])
+    total_maq.index = [""]
+
+    df_maq_exib = pd.concat([
+        maq_resumo[["Máquina", "Total_KG", "Total_UN", "Apontamentos", "Operadores"]],
+        total_maq[["Máquina", "Total_KG", "Total_UN", "Apontamentos", "Operadores"]],
+    ])
+
+    st.dataframe(
+        df_maq_exib.rename(columns={
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+            "Operadores": "Nº Operadores",
+        }),
+        use_container_width=True,
+    )
+
+    # ── Totalizador geral ─────────────────────────────────────────────────────
+    quebra_pagina()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("⚖️ Total KG", f"{df['Peso (KG)'].sum():,.0f} KG")
+    c2.metric("🔢 Total UN", f"{df['Qtd (UN)'].sum():,.0f} UN")
+    c3.metric("👷 Operadores", df["Operador"].nunique())
+    c4.metric("🏭 Máquinas", df["Máquina"].nunique())
+
+
+# ── Aba 8: Dados Brutos ───────────────────────────────────────────────────────
+with aba8:
+    st.header("Base de Dados Unificada")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        ops = ["Todos"] + sorted(df["Operador"].unique().tolist())
+        op_sel = st.selectbox("Filtrar por Operador:", ops)
+    with col2:
+        turnos = ["Todos"] + sorted(df["Turno"].unique().tolist())
+        turno_sel = st.selectbox("Filtrar por Turno:", turnos)
+    with col3:
+        maquinas = ["Todas"] + sorted(df["Máquina"].unique().tolist())
+        maq_sel = st.selectbox("Filtrar por Máquina:", maquinas)
+
+    df_exib = df.drop(columns=["Data_dt"])
+    if op_sel != "Todos":
+        df_exib = df_exib[df_exib["Operador"] == op_sel]
+    if turno_sel != "Todos":
+        df_exib = df_exib[df_exib["Turno"] == turno_sel]
+    if maq_sel != "Todas":
+        df_exib = df_exib[df_exib["Máquina"] == maq_sel]
+
+    st.dataframe(df_exib, use_container_width=True, hide_index=True)
+    csv = df_exib.to_csv(index=False).encode("utf-8")
+    st.download_button(label="📥 Baixar CSV", data=csv, file_name="producao_polimpress.csv", mime="text/csv")
+
+
 # ── Aba 5: Evolução Operador ──────────────────────────────────────────────────
 with aba5:
     st.header("📈 Evolução Individual do Operador")
@@ -952,7 +1350,6 @@ with aba5:
 
     if len(_meses_ord) < 2:
         st.warning("É necessário ao menos 2 meses de dados para análise de evolução.")
-        st.stop()
 
     # ── Resumo mensal ─────────────────────────────────────────────────────────
     _monthly = []
@@ -1420,401 +1817,3 @@ with aba5:
     )
 
 
-# ── Aba 6: KG / Dia ──────────────────────────────────────────────────────────
-with aba6:
-    st.header("📅 Ranking por KG / Dia")
-    st.caption("Média de quilos produzidos por dia trabalhado — métrica que mostra ritmo diário independente do turno.")
-
-    _med_dia = ["🥇", "🥈", "🥉"]
-
-    def _cards_kgdia(df_rank, label_col, value_col, value_suffix, extra_col, extra_suffix, expander_txt, n_cols=5):
-        n = len(df_rank)
-        top3 = min(n, 3)
-        cols = st.columns(top3)
-        for i in range(top3):
-            row = df_rank.iloc[i]
-            with cols[i]:
-                st.metric(
-                    label=f"{_med_dia[i]} {row[label_col]}",
-                    value=f"{row[value_col]:,.1f} {value_suffix}",
-                    delta=f"{row[extra_col]:,.1f} {extra_suffix}" if extra_col else None,
-                )
-        if n > 3:
-            with st.expander(expander_txt):
-                rest = df_rank.iloc[3:]
-                cols2 = st.columns(min(len(rest), n_cols))
-                for j, (_, row) in enumerate(rest.iterrows()):
-                    with cols2[j % n_cols]:
-                        st.metric(
-                            label=row[label_col],
-                            value=f"{row[value_col]:,.1f} {value_suffix}",
-                            delta=f"{row[extra_col]:,.1f} {extra_suffix}" if extra_col else None,
-                        )
-
-    # ── Operadores ────────────────────────────────────────────────────────────
-    st.subheader("👷 Operadores — KG / Dia")
-
-    op_dia = resumo.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
-
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        st.markdown("#### 📦 KG / Dia")
-        _cards_kgdia(
-            op_dia, "Nome Curto", "KG / Dia", "KG/dia",
-            "KG / Hora", "KG/hora",
-            f"Ver todos os {len(op_dia)} operadores",
-        )
-        st.plotly_chart(
-            bar_chart(op_dia["Nome Curto"], op_dia["KG / Dia"], fmt=",.1f", cor="#4C9BE8", max_show=10),
-            use_container_width=True,
-        )
-
-    with col_d2:
-        st.markdown("#### 🕐 Horas trabalhadas no período")
-        op_horas = resumo.sort_values("Horas Trabalhadas", ascending=False).reset_index(drop=True)
-        _cards_kgdia(
-            op_horas, "Nome Curto", "Horas Trabalhadas", "h",
-            "Dias Trabalhados", "dias",
-            f"Ver todos os {len(op_horas)} operadores",
-        )
-        st.plotly_chart(
-            bar_chart(op_horas["Nome Curto"], op_horas["Horas Trabalhadas"], fmt=",.0f", cor="#F0AD4E", max_show=10),
-            use_container_width=True,
-        )
-
-    st.divider()
-
-    # ── Tabela resumo operadores ──────────────────────────────────────────────
-    st.subheader("📋 Tabela completa — Operadores")
-    st.dataframe(
-        op_dia[[
-            "Nome Curto", "Turno", "Dias Trabalhados", "Horas Trabalhadas",
-            "KG / Dia", "KG / Hora", "UN / Hora", "Total_KG", "Total_UN",
-        ]].rename(columns={
-            "Nome Curto": "Operador",
-            "Total_KG": "Total KG",
-            "Total_UN": "Total UN",
-        }),
-        use_container_width=True, hide_index=True,
-    )
-
-    quebra_pagina()
-
-    # ── Máquinas ──────────────────────────────────────────────────────────────
-    st.subheader("🏭 Máquinas — KG / Dia")
-
-    maq_dia = df_maq_resumo_g.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
-
-    col_m1, col_m2 = st.columns(2)
-    with col_m1:
-        st.markdown("#### 📦 KG / Dia por Máquina")
-        _cards_kgdia(
-            maq_dia, "Nº Máquina", "KG / Dia", "KG/dia",
-            "UN / Dia", "UN/dia",
-            f"Ver todas as {len(maq_dia)} máquinas",
-            n_cols=4,
-        )
-        st.plotly_chart(
-            bar_chart(maq_dia["Máquina Curta"], maq_dia["KG / Dia"], fmt=",.1f", cor="#4C9BE8", max_show=5),
-            use_container_width=True,
-        )
-
-    with col_m2:
-        st.markdown("#### 🔢 UN / Dia por Máquina")
-        maq_un_dia = df_maq_resumo_g.sort_values("UN / Dia", ascending=False).reset_index(drop=True)
-        _cards_kgdia(
-            maq_un_dia, "Nº Máquina", "UN / Dia", "UN/dia",
-            "KG / Dia", "KG/dia",
-            f"Ver todas as {len(maq_un_dia)} máquinas",
-            n_cols=4,
-        )
-        st.plotly_chart(
-            bar_chart(maq_un_dia["Máquina Curta"], maq_un_dia["UN / Dia"], fmt=",.0f", cor="#5CB85C", max_show=5),
-            use_container_width=True,
-        )
-
-    st.divider()
-
-    st.subheader("📋 Tabela completa — Máquinas")
-    st.dataframe(
-        maq_dia[[
-            "Nº Máquina", "Máquina", "Dias_Ativas", "KG / Dia", "UN / Dia",
-            "Total_KG", "Total_UN", "Melhor Op", "Melhor KG/Dia",
-        ]].rename(columns={
-            "Nº Máquina": "Máq.",
-            "Dias_Ativas": "Dias Ativas",
-            "Total_KG": "Total KG",
-            "Total_UN": "Total UN",
-            "Melhor Op": "Melhor Operador",
-        }),
-        use_container_width=True, hide_index=True,
-    )
-
-
-# ── Aba 7: Resumo Geral ──────────────────────────────────────────────────────
-with aba7:
-    st.header("📊 Resumo Geral de Produção")
-    st.caption("Soma total produzida no período analisado, por operador e por máquina.")
-
-    # ── Tabela de Operadores ──────────────────────────────────────────────────
-    st.subheader("👷 Produção por Operador")
-
-    op_resumo = (
-        df.groupby(["Operador", "Nome Curto", "Turno"])
-        .agg(
-            Total_KG=("Peso (KG)", "sum"),
-            Total_UN=("Qtd (UN)", "sum"),
-            Apontamentos=("Cód Item", "count"),
-        )
-        .reset_index()
-        .sort_values("Total_KG", ascending=False)
-        .reset_index(drop=True)
-    )
-    op_resumo.index = op_resumo.index + 1  # começa em 1
-
-    # Linha de total
-    total_op = pd.DataFrame([{
-        "Operador": "─── TOTAL ───",
-        "Nome Curto": "TOTAL",
-        "Turno": "",
-        "Total_KG": op_resumo["Total_KG"].sum(),
-        "Total_UN": op_resumo["Total_UN"].sum(),
-        "Apontamentos": op_resumo["Apontamentos"].sum(),
-    }])
-    total_op.index = [""]
-
-    df_op_exib = pd.concat([
-        op_resumo[["Operador", "Turno", "Total_KG", "Total_UN", "Apontamentos"]],
-        total_op[["Operador", "Turno", "Total_KG", "Total_UN", "Apontamentos"]],
-    ])
-
-    st.dataframe(
-        df_op_exib.rename(columns={
-            "Total_KG": "Total KG",
-            "Total_UN": "Total UN",
-        }),
-        use_container_width=True,
-    )
-
-    quebra_pagina()
-
-    # ── Tabela de Máquinas ────────────────────────────────────────────────────
-    st.subheader("🏭 Produção por Máquina")
-
-    maq_resumo = (
-        df.groupby("Máquina")
-        .agg(
-            Total_KG=("Peso (KG)", "sum"),
-            Total_UN=("Qtd (UN)", "sum"),
-            Apontamentos=("Cód Item", "count"),
-            Operadores=("Nome Curto", lambda x: len(x.unique())),
-        )
-        .reset_index()
-        .sort_values("Total_KG", ascending=False)
-        .reset_index(drop=True)
-    )
-    maq_resumo.index = maq_resumo.index + 1
-
-    total_maq = pd.DataFrame([{
-        "Máquina": "─── TOTAL ───",
-        "Total_KG": maq_resumo["Total_KG"].sum(),
-        "Total_UN": maq_resumo["Total_UN"].sum(),
-        "Apontamentos": maq_resumo["Apontamentos"].sum(),
-        "Operadores": df["Nome Curto"].nunique(),
-    }])
-    total_maq.index = [""]
-
-    df_maq_exib = pd.concat([
-        maq_resumo[["Máquina", "Total_KG", "Total_UN", "Apontamentos", "Operadores"]],
-        total_maq[["Máquina", "Total_KG", "Total_UN", "Apontamentos", "Operadores"]],
-    ])
-
-    st.dataframe(
-        df_maq_exib.rename(columns={
-            "Total_KG": "Total KG",
-            "Total_UN": "Total UN",
-            "Operadores": "Nº Operadores",
-        }),
-        use_container_width=True,
-    )
-
-    # ── Totalizador geral ─────────────────────────────────────────────────────
-    quebra_pagina()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("⚖️ Total KG", f"{df['Peso (KG)'].sum():,.0f} KG")
-    c2.metric("🔢 Total UN", f"{df['Qtd (UN)'].sum():,.0f} UN")
-    c3.metric("👷 Operadores", df["Operador"].nunique())
-    c4.metric("🏭 Máquinas", df["Máquina"].nunique())
-
-
-# ── Aba 8: Dados Brutos ───────────────────────────────────────────────────────
-with aba8:
-    st.header("Base de Dados Unificada")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        ops = ["Todos"] + sorted(df["Operador"].unique().tolist())
-        op_sel = st.selectbox("Filtrar por Operador:", ops)
-    with col2:
-        turnos = ["Todos"] + sorted(df["Turno"].unique().tolist())
-        turno_sel = st.selectbox("Filtrar por Turno:", turnos)
-    with col3:
-        maquinas = ["Todas"] + sorted(df["Máquina"].unique().tolist())
-        maq_sel = st.selectbox("Filtrar por Máquina:", maquinas)
-
-    df_exib = df.drop(columns=["Data_dt"])
-    if op_sel != "Todos":
-        df_exib = df_exib[df_exib["Operador"] == op_sel]
-    if turno_sel != "Todos":
-        df_exib = df_exib[df_exib["Turno"] == turno_sel]
-    if maq_sel != "Todas":
-        df_exib = df_exib[df_exib["Máquina"] == maq_sel]
-
-    st.dataframe(df_exib, use_container_width=True, hide_index=True)
-    csv = df_exib.to_csv(index=False).encode("utf-8")
-    st.download_button(label="📥 Baixar CSV", data=csv, file_name="producao_polimpress.csv", mime="text/csv")
-
-
-# ── Aba 4: Top Produção ───────────────────────────────────────────────────────
-with aba4:
-    st.header("🏅 Top Produção — Ranking por Volume Total")
-    st.caption("Quem e quais máquinas produziram mais em quantidade absoluta (KG e UN) no período analisado.")
-
-    _med5 = ["🥇", "🥈", "🥉"]
-
-    def _cards_expander(df_rank, label_col, value_col, value_fmt, value_suffix, expander_label, delta_col=None, delta_fmt=None, delta_suffix=""):
-        """Renderiza top-3 cards + expander para o restante."""
-        n = len(df_rank)
-        top3 = min(n, 3)
-        cols = st.columns(top3)
-        for i in range(top3):
-            row = df_rank.iloc[i]
-            val_str = f"{row[value_col]:{value_fmt}}{value_suffix}"
-            dlt_str = None
-            if delta_col and delta_fmt:
-                dlt_str = f"{row[delta_col]:{delta_fmt}}{delta_suffix}"
-            with cols[i]:
-                st.metric(
-                    label=f"{_med5[i]} {row[label_col]}",
-                    value=val_str,
-                    delta=dlt_str,
-                )
-        if n > 3:
-            with st.expander(expander_label):
-                rest = df_rank.iloc[3:]
-                cols2 = st.columns(min(len(rest), 5))
-                for j, (_, row) in enumerate(rest.iterrows()):
-                    val_str = f"{row[value_col]:{value_fmt}}{value_suffix}"
-                    dlt_str = None
-                    if delta_col and delta_fmt:
-                        dlt_str = f"{row[delta_col]:{delta_fmt}}{delta_suffix}"
-                    with cols2[j % 5]:
-                        st.metric(
-                            label=row[label_col],
-                            value=val_str,
-                            delta=dlt_str,
-                        )
-
-    # ── Operadores ────────────────────────────────────────────────────────────
-    st.subheader("👷 Ranking de Operadores")
-    op_totais = (
-        df.groupby(["Operador", "Nome Curto"])
-        .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"))
-        .reset_index()
-    )
-
-    col_op1, col_op2 = st.columns(2)
-
-    with col_op1:
-        st.markdown("#### 📦 Total de KG produzido")
-        op_kg = op_totais.sort_values("Total_KG", ascending=False).reset_index(drop=True)
-        _cards_expander(
-            op_kg,
-            label_col="Nome Curto",
-            value_col="Total_KG",
-            value_fmt=",.0f",
-            value_suffix=" KG",
-            expander_label=f"Ver todos os {len(op_kg)} operadores (KG)",
-            delta_col="Total_UN",
-            delta_fmt=",.0f",
-            delta_suffix=" UN",
-        )
-        st.plotly_chart(
-            bar_chart(op_kg["Nome Curto"], op_kg["Total_KG"], fmt=",.0f", cor="#4C9BE8", max_show=10),
-            use_container_width=True,
-        )
-
-    with col_op2:
-        st.markdown("#### 🔢 Total de UN produzido")
-        op_un = op_totais.sort_values("Total_UN", ascending=False).reset_index(drop=True)
-        _cards_expander(
-            op_un,
-            label_col="Nome Curto",
-            value_col="Total_UN",
-            value_fmt=",.0f",
-            value_suffix=" UN",
-            expander_label=f"Ver todos os {len(op_un)} operadores (UN)",
-            delta_col="Total_KG",
-            delta_fmt=",.0f",
-            delta_suffix=" KG",
-        )
-        st.plotly_chart(
-            bar_chart(op_un["Nome Curto"], op_un["Total_UN"], fmt=",.0f", cor="#5CB85C", max_show=10),
-            use_container_width=True,
-        )
-
-    quebra_pagina()
-
-    # ── Máquinas ──────────────────────────────────────────────────────────────
-    st.subheader("🏭 Ranking de Máquinas")
-    maq_totais = (
-        df.groupby("Máquina")
-        .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"))
-        .reset_index()
-    )
-    maq_totais["Máquina Curta"] = (
-        maq_totais["Máquina"].str.extract(r"^(\d+)")[0].fillna("")
-        + " - "
-        + maq_totais["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:18]
-    )
-    maq_totais["Nº Máquina"] = maq_totais["Máquina"].str.extract(r"^(\d+)")[0].fillna(maq_totais["Máquina"])
-
-    col_mq1, col_mq2 = st.columns(2)
-
-    with col_mq1:
-        st.markdown("#### 📦 Total de KG por Máquina")
-        maq_kg = maq_totais.sort_values("Total_KG", ascending=False).reset_index(drop=True)
-        _cards_expander(
-            maq_kg,
-            label_col="Nº Máquina",
-            value_col="Total_KG",
-            value_fmt=",.0f",
-            value_suffix=" KG",
-            expander_label=f"Ver todas as {len(maq_kg)} máquinas (KG)",
-            delta_col="Total_UN",
-            delta_fmt=",.0f",
-            delta_suffix=" UN",
-        )
-        st.plotly_chart(
-            bar_chart(maq_kg["Máquina Curta"], maq_kg["Total_KG"], fmt=",.0f", cor="#4C9BE8", max_show=5),
-            use_container_width=True,
-        )
-
-    with col_mq2:
-        st.markdown("#### 🔢 Total de UN por Máquina")
-        maq_un = maq_totais.sort_values("Total_UN", ascending=False).reset_index(drop=True)
-        _cards_expander(
-            maq_un,
-            label_col="Nº Máquina",
-            value_col="Total_UN",
-            value_fmt=",.0f",
-            value_suffix=" UN",
-            expander_label=f"Ver todas as {len(maq_un)} máquinas (UN)",
-            delta_col="Total_KG",
-            delta_fmt=",.0f",
-            delta_suffix=" KG",
-        )
-        st.plotly_chart(
-            bar_chart(maq_un["Máquina Curta"], maq_un["Total_UN"], fmt=",.0f", cor="#5CB85C", max_show=5),
-            use_container_width=True,
-        )
