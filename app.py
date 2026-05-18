@@ -16,12 +16,14 @@ st.markdown("""
 - 📋 **Dados Brutos** — todos os registros extraídos dos PDFs com filtros por operador, turno e máquina, exportável em CSV.
 """)
 
-_RE_ITEM_UN = re.compile(r"^(\d+)\s*-\s*(.*)\s+([\d\.]+,\d+)\s*UN\s+([\d\.]+,\d+)\s*$")
-_RE_ITEM_KG = re.compile(r"^(\d+)\s*-\s*(.*)\s+([\d\.]+,\d+)\s*KG\s+([\d\.]+,\d+)\s*$")
-_RE_USUARIO = re.compile(r"[Uu]su.{0,2}rio:\s*\d+\s*-\s*(.+)")
-_RE_TURNO   = re.compile(r"Turno:\s*(\d+)")
-_RE_DIA     = re.compile(r"Dia:\s*(\d{2}/\d{2}/\d{4})")
-_RE_RECURSO = re.compile(r"Recurso:\s*(.+)")
+_RE_ITEM_UN     = re.compile(r"^(\d+)\s*-\s*(.*)\s+([\d\.]+,\d+)\s*UN\s+([\d\.]+,\d+)\s*$")
+_RE_ITEM_KG     = re.compile(r"^(\d+)\s*-\s*(.*)\s+([\d\.]+,\d+)\s*KG\s+([\d\.]+,\d+)\s*$")
+_RE_USUARIO     = re.compile(r"[Uu]su.{0,2}rio:\s*\d+\s*-\s*(.+)")
+_RE_FUNCIONARIO = re.compile(r"^Funcion.{0,2}rio:\s*\d+\s*-\s*(.+)")
+_RE_TURNO       = re.compile(r"Turno:\s*(\d+)")
+_RE_DIA         = re.compile(r"Dia:\s*(\d{2}/\d{2}/\d{4})")
+_RE_RECURSO     = re.compile(r"Recurso:\s*(.+)")
+_RE_PERIODO     = re.compile(r"Per.{0,2}odo:\s*(\d{2}/\d{2}/\d{4})\s*-\s*(\d{2}/\d{2}/\d{4})")
 
 _HORAS: dict[tuple[int, bool], float] = {
     (1, False): 7 + 50 / 60,
@@ -39,6 +41,28 @@ def horas_turno(turno_str: str, data_dt) -> float:
     except ValueError:
         return 7 + 50 / 60
     return _HORAS.get((num, data_dt.weekday() == 5), 7 + 50 / 60)
+
+
+def horas_operador_periodo(turno_str: str, inicio_dt, fim_dt) -> float:
+    """Total de horas produtivas de um turno ao longo de um período (Seg–Sáb)."""
+    total = 0.0
+    current = inicio_dt
+    while current <= fim_dt:
+        if current.weekday() < 6:  # Seg–Sáb, exclui Domingo
+            total += horas_turno(turno_str, current)
+        current += pd.Timedelta(days=1)
+    return total
+
+
+def dias_trabalhados_no_periodo(inicio_dt, fim_dt) -> int:
+    """Conta dias úteis (Seg–Sáb) no intervalo do período."""
+    count = 0
+    current = inicio_dt
+    while current <= fim_dt:
+        if current.weekday() < 6:
+            count += 1
+        current += pd.Timedelta(days=1)
+    return count
 
 
 def nome_curto(nome_completo: str) -> str:
@@ -79,9 +103,25 @@ def bar_chart(labels, values, fmt=".1f", cor="#4C9BE8", height=340):
 
 
 def extrair_dados_pdf(pdf_file) -> list[dict]:
+    """
+    Suporta dois formatos de relatório:
+      • Formato diário  (RPCP620 antigo): Usuário → Turno → Dia → Recurso → Itens
+      • Formato período (RPCP621 novo):   Recurso → Turno → Funcionário → Itens
+    """
+    _SKIP = (
+        "Total de Registros", "Total Funcion", "Total Turno", "Total Recurso",
+        "Item QuantidadeUnidade", "POLIMPRESS", "CNPJ", "DRACENA",
+        "Primeira Quebra", "Segunda Quebra", "Terceira Quebra", "Agrupamento",
+        "Tipo Recurso", "Local Busca", "ROTINA:", "HORA:", "PÁGINA:", "INSCR.",
+        "Análise Resumida", "Análise De", "REBOBINAGEM", "CORTE E SOLDA",
+    )
     dados = []
     with pdfplumber.open(pdf_file) as pdf:
-        operador = turno = data_atual = recurso_atual = None
+        operador = turno = recurso_atual = None
+        data_atual = None
+        periodo_inicio_str = periodo_fim_str = None
+        formato_novo = False   # True = RPCP621 (Funcionário/Período)
+
         for pagina in pdf.pages:
             texto = pagina.extract_text()
             if not texto:
@@ -90,48 +130,94 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
                 linha = linha.strip()
                 if not linha:
                     continue
-                if _RE_USUARIO.search(linha):
-                    m = _RE_USUARIO.search(linha)
+                if any(k in linha for k in _SKIP):
+                    continue
+
+                # ── Período (novo formato) ──────────────────────────────────
+                m = _RE_PERIODO.search(linha)
+                if m:
+                    periodo_inicio_str = m.group(1)
+                    periodo_fim_str    = m.group(2)
+                    continue
+
+                # ── Funcionário (novo formato) ──────────────────────────────
+                m = _RE_FUNCIONARIO.match(linha)
+                if m:
                     nome = re.split(r"\s+Tipo\s+", m.group(1))[0].strip()
                     operador = nome
-                    recurso_atual = None
-                elif "Turno:" in linha:
+                    formato_novo = True
+                    continue
+
+                # ── Usuário (formato antigo) ────────────────────────────────
+                m = _RE_USUARIO.search(linha)
+                if m:
+                    nome = re.split(r"\s+Tipo\s+", m.group(1))[0].strip()
+                    operador = nome
+                    recurso_atual = None   # antigo: máquina vem depois do operador
+                    continue
+
+                # ── Turno ───────────────────────────────────────────────────
+                if linha.startswith("Turno:"):
                     m = _RE_TURNO.search(linha)
                     if m:
                         turno = f"Turno {m.group(1)}"
-                elif "Dia:" in linha:
-                    m = _RE_DIA.search(linha)
-                    if m:
-                        data_atual = m.group(1)
-                elif "Recurso:" in linha and "Tipo Recurso:" not in linha:
+                    continue
+
+                # ── Dia (formato antigo) ────────────────────────────────────
+                m = _RE_DIA.search(linha)
+                if m:
+                    data_atual = m.group(1)
+                    continue
+
+                # ── Recurso / Máquina ───────────────────────────────────────
+                if "Recurso:" in linha and "Tipo Recurso:" not in linha and "Total" not in linha:
                     m = _RE_RECURSO.search(linha)
                     if m:
                         recurso_atual = m.group(1).strip()
-                elif operador and recurso_atual and data_atual:
-                    if "Total" in linha or "Registros" in linha:
-                        continue
-                    m = _RE_ITEM_UN.match(linha) or _RE_ITEM_KG.match(linha)
-                    if not m:
-                        continue
-                    unidade = "UN" if _RE_ITEM_UN.match(linha) else "KG"
-                    try:
-                        quantidade = _parse_br_float(m.group(3))
-                        peso = _parse_br_float(m.group(4))
-                    except ValueError:
-                        continue
-                    dados.append({
-                        "Operador":          operador,
-                        "Nome Curto":        nome_curto(operador),
-                        "Turno":             turno or "Não Informado",
-                        "Data":              data_atual,
-                        "Máquina":           recurso_atual,
-                        "Cód Item":          m.group(1).strip(),
-                        "Descrição Item":    m.group(2).strip(),
-                        "Unidade":           unidade,
-                        "Qtd (UN)":          quantidade,
-                        "Peso (KG)":         peso,
-                        "Peso Médio/UN (g)": (peso / quantidade * 1000) if quantidade > 0 else 0,
-                    })
+                    if formato_novo:
+                        operador = None   # novo: troca de máquina reseta operador
+                    continue
+
+                # ── Itens ───────────────────────────────────────────────────
+                if not operador or not recurso_atual:
+                    continue
+                if "Total" in linha or "Registros" in linha:
+                    continue
+
+                # Referência de data
+                if data_atual:
+                    data_ref = data_atual
+                elif periodo_fim_str:
+                    data_ref = periodo_fim_str
+                else:
+                    continue
+
+                m = _RE_ITEM_UN.match(linha) or _RE_ITEM_KG.match(linha)
+                if not m:
+                    continue
+
+                unidade = "UN" if _RE_ITEM_UN.match(linha) else "KG"
+                try:
+                    quantidade = _parse_br_float(m.group(3))
+                    peso       = _parse_br_float(m.group(4))
+                except ValueError:
+                    continue
+
+                dados.append({
+                    "Operador":          operador,
+                    "Nome Curto":        nome_curto(operador),
+                    "Turno":             turno or "Não Informado",
+                    "Data":              data_ref,
+                    "Periodo_Inicio":    periodo_inicio_str,
+                    "Periodo_Fim":       periodo_fim_str,
+                    "Máquina":           recurso_atual,
+                    "Cód Item":          m.group(1).strip(),
+                    "Descrição Item":    m.group(2).strip(),
+                    "Unidade":           unidade,
+                    "Qtd (UN)":          quantidade,
+                    "Peso (KG)":         peso,
+                    "Peso Médio/UN (g)": (peso / quantidade * 1000) if quantidade > 0 else 0,
+                })
     return dados
 
 
@@ -161,7 +247,9 @@ if not todos_dados:
     st.stop()
 
 df = pd.DataFrame(todos_dados)
-df["Data_dt"] = pd.to_datetime(df["Data"], format="%d/%m/%Y")
+df["Data_dt"]          = pd.to_datetime(df["Data"], format="%d/%m/%Y")
+df["Periodo_Inicio_dt"] = pd.to_datetime(df["Periodo_Inicio"], format="%d/%m/%Y", errors="coerce")
+df["Periodo_Fim_dt"]    = pd.to_datetime(df["Periodo_Fim"],    format="%d/%m/%Y", errors="coerce")
 
 st.success(
     f"✅ {len(arquivos_pdf)} relatório(s) · {len(df)} registros · "
@@ -179,14 +267,23 @@ aba1, aba2, aba3, aba4 = st.tabs([
 # ── helpers de resumo ────────────────────────────────────────────────────────
 def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
     horas_op = {}
+    dias_op  = {}
     for op, g in df_in.groupby("Operador"):
         ts = g["Turno"].iloc[0]
-        dias = g["Data_dt"].drop_duplicates()
-        horas_op[op] = dias.apply(lambda d: horas_turno(ts, d)).sum()
+        p_ini = g["Periodo_Inicio_dt"].iloc[0]
+        p_fim = g["Periodo_Fim_dt"].iloc[0]
+        if pd.notna(p_ini) and pd.notna(p_fim):
+            # Formato período (RPCP621): calcula horas pelo intervalo
+            horas_op[op] = horas_operador_periodo(ts, p_ini, p_fim)
+            dias_op[op]  = dias_trabalhados_no_periodo(p_ini, p_fim)
+        else:
+            # Formato diário (RPCP620 antigo): soma horas por dia único
+            dias_uniq    = g["Data_dt"].dropna().drop_duplicates()
+            horas_op[op] = dias_uniq.apply(lambda d: horas_turno(ts, d)).sum()
+            dias_op[op]  = len(dias_uniq)
 
-    dias_por_op  = df_in.groupby("Operador")["Data"].nunique().rename("Dias Trabalhados")
-    turno_por_op = df_in.groupby("Operador")["Turno"].first()
-    nome_curto_op= df_in.groupby("Operador")["Nome Curto"].first()
+    turno_por_op  = df_in.groupby("Operador")["Turno"].first()
+    nome_curto_op = df_in.groupby("Operador")["Nome Curto"].first()
 
     r = (
         df_in.groupby("Operador")
@@ -197,9 +294,10 @@ def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
             Produtos_Distintos=("Cód Item", "nunique"),
             Peso_Medio_g=("Peso Médio/UN (g)", "mean"),
         )
-        .join(dias_por_op).join(turno_por_op).join(nome_curto_op)
+        .join(turno_por_op).join(nome_curto_op)
         .reset_index()
     )
+    r["Dias Trabalhados"]    = r["Operador"].map(dias_op)
     r["Horas Trabalhadas"]   = r["Operador"].map(horas_op).round(1)
     r["KG / Hora"]           = (r["Total_KG"] / r["Horas Trabalhadas"]).round(2)
     r["UN / Hora"]           = (r["Total_UN"] / r["Horas Trabalhadas"]).round(1)
@@ -285,16 +383,25 @@ with aba1:
 
     def resumo_por_maquina(df_m: pd.DataFrame) -> pd.DataFrame:
         horas_op = {}
+        dias_op  = {}
         for op, g in df_m.groupby("Operador"):
-            ts = g["Turno"].iloc[0]
-            dias = g["Data_dt"].drop_duplicates()
-            horas_op[op] = dias.apply(lambda d: horas_turno(ts, d)).sum()
+            ts    = g["Turno"].iloc[0]
+            p_ini = g["Periodo_Inicio_dt"].iloc[0]
+            p_fim = g["Periodo_Fim_dt"].iloc[0]
+            if pd.notna(p_ini) and pd.notna(p_fim):
+                horas_op[op] = horas_operador_periodo(ts, p_ini, p_fim)
+                dias_op[op]  = dias_trabalhados_no_periodo(p_ini, p_fim)
+            else:
+                dias_uniq    = g["Data_dt"].dropna().drop_duplicates()
+                horas_op[op] = dias_uniq.apply(lambda d: horas_turno(ts, d)).sum()
+                dias_op[op]  = len(dias_uniq)
         r = (
             df_m.groupby(["Operador", "Nome Curto"])
-            .agg(Total_KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"))
+            .agg(Total_KG=("Peso (KG)", "sum"))
             .reset_index()
         )
-        r["Horas"] = r["Operador"].map(horas_op).round(1)
+        r["Dias"]      = r["Operador"].map(dias_op)
+        r["Horas"]     = r["Operador"].map(horas_op).round(1)
         r["KG / Hora"] = (r["Total_KG"] / r["Horas"]).round(2)
         r["KG / Dia"]  = (r["Total_KG"] / r["Dias"]).round(1)
         return r.sort_values("KG / Hora", ascending=False).reset_index(drop=True)
@@ -502,12 +609,17 @@ with aba3:
     desc_map = df.drop_duplicates("Cód Item").set_index("Cód Item")["Descrição Item"].to_dict()
     ops_por_item = df.groupby("Cód Item")["Operador"].nunique()
 
-    # Horas reais por (item, operador) — soma das horas dos dias em que produziu o item
+    # Horas reais por (item, operador) — período ou dias únicos conforme o formato
     horas_item_op: dict[tuple, float] = {}
     for (item, op), g in df.groupby(["Cód Item", "Operador"]):
-        ts = g["Turno"].iloc[0]
-        dias_uniq = g["Data_dt"].drop_duplicates()
-        horas_item_op[(item, op)] = dias_uniq.apply(lambda d: horas_turno(ts, d)).sum()
+        ts    = g["Turno"].iloc[0]
+        p_ini = g["Periodo_Inicio_dt"].iloc[0]
+        p_fim = g["Periodo_Fim_dt"].iloc[0]
+        if pd.notna(p_ini) and pd.notna(p_fim):
+            horas_item_op[(item, op)] = horas_operador_periodo(ts, p_ini, p_fim)
+        else:
+            dias_uniq = g["Data_dt"].dropna().drop_duplicates()
+            horas_item_op[(item, op)] = dias_uniq.apply(lambda d: horas_turno(ts, d)).sum()
 
     # KG/hora e UN/apontamento por operador × item
     df_item_op = (
