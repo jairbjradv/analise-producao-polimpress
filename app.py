@@ -10,9 +10,12 @@ st.title("📊 Sistema de Análise de Produção Homem x Máquina")
 st.subheader("Análise unificada de relatórios de produção por operador")
 
 st.markdown("""
+> 📄 **Relatório necessário:** utilize o **RPCP621 — Relatório para Análise de Produção** para gerar os PDFs compatíveis com este sistema.
+
 - 🏆 **Ranking de Operadores** — compara todos os operadores por **KG/hora** real trabalhada, eliminando a diferença de turno, sábados e dias trabalhados. Também detalha o desempenho de cada operador dentro de cada máquina que utilizou.
 - 🏭 **Ranking por Máquina** — mostra quais máquinas mais produziram (KG/dia e UN/dia), qual operador foi o melhor em cada uma e permite comparar lado a lado os operadores de uma mesma máquina.
 - ⚖️ **Comparativo por Item** — selecione um produto e veja quem produziu mais (KG/hora) naquele item específico — comparação justa, mesma matéria-prima e mesmo produto.
+- 🏅 **Top Produção** — ranking de quem produziu mais em volume total (KG e UN), tanto por operador quanto por máquina.
 - 📋 **Dados Brutos** — todos os registros extraídos dos PDFs com filtros por operador, turno e máquina, exportável em CSV.
 """)
 
