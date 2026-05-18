@@ -6,6 +6,35 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Análise de Produção - Polimpress", layout="wide")
 
+# ── CSS de impressão ─────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@media print {
+    /* Oculta elementos de navegação do Streamlit */
+    header, footer, [data-testid="stToolbar"],
+    [data-testid="stSidebar"], [data-testid="stFileUploader"],
+    [data-testid="stStatusWidget"], .stDeployButton,
+    [data-testid="stDecoration"] { display: none !important; }
+
+    /* Cada seção marcada com .pbreak começa em nova página */
+    .pbreak { page-break-before: always; break-before: page; }
+
+    /* Evita quebra no meio de tabelas e gráficos */
+    [data-testid="stDataFrame"],
+    [data-testid="stPlotlyChart"] { page-break-inside: avoid; break-inside: avoid; }
+
+    /* Expande toda a largura */
+    .block-container { max-width: 100% !important; padding: 0 !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+def quebra_pagina():
+    """Insere marcador de quebra de página visível apenas na impressão."""
+    st.markdown('<div class="pbreak"></div>', unsafe_allow_html=True)
+
+
 st.title("📊 Sistema de Análise de Produção Homem x Máquina")
 st.subheader("Análise unificada de relatórios de produção por operador")
 
@@ -368,7 +397,7 @@ with aba1:
                         delta=f"{row['Turno']} · {row['Dias Trabalhados']} dias",
                     )
 
-    st.divider()
+    quebra_pagina()
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -387,7 +416,7 @@ with aba1:
             use_container_width=True,
         )
 
-    st.divider()
+    quebra_pagina()
     st.subheader("Peso médio por peça (proxy de complexidade)")
     st.caption("Sacos mais pesados são maiores/mais espessos — máquina roda mais devagar.")
     st.plotly_chart(
@@ -395,7 +424,7 @@ with aba1:
         use_container_width=True,
     )
 
-    st.divider()
+    quebra_pagina()
     st.subheader("Resumo completo")
     st.dataframe(
         resumo[[
@@ -410,7 +439,7 @@ with aba1:
         use_container_width=True, hide_index=True,
     )
 
-    st.divider()
+    quebra_pagina()
     st.subheader("KG/hora por operador — detalhado por máquina")
     st.caption("Abas ordenadas da máquina que mais produziu para a que menos produziu.")
 
@@ -563,7 +592,7 @@ with aba2:
                     )
                     st.caption(f"🏅 Melhor: **{row['Melhor Op']}** ({row['Melhor KG/Dia']:.0f} KG/dia)")
 
-    st.divider()
+    quebra_pagina()
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -579,7 +608,7 @@ with aba2:
             use_container_width=True,
         )
 
-    st.divider()
+    quebra_pagina()
     st.subheader("Melhor operador em cada máquina — KG/dia")
     st.caption("Comparativo direto: para cada máquina, qual operador foi mais produtivo (KG/dia naquela máquina).")
 
@@ -630,7 +659,7 @@ with aba2:
             use_container_width=True, hide_index=True,
         )
 
-    st.divider()
+    quebra_pagina()
     st.subheader("KG total por Máquina × Operador")
     df_maq_op_grp = df.groupby(["Máquina", "Nome Curto"])["Peso (KG)"].sum().reset_index()
     pivot = df_maq_op_grp.pivot(index="Máquina", columns="Nome Curto", values="Peso (KG)").fillna(0)
@@ -652,6 +681,7 @@ with aba2:
     )
     st.plotly_chart(fig_stack, use_container_width=True)
 
+    quebra_pagina()
     st.subheader("Tabela detalhada por máquina")
     st.dataframe(
         df_maq_resumo[[
@@ -814,7 +844,7 @@ with aba3:
     )
 
     if n_ops > 1:
-        st.divider()
+        quebra_pagina()
         st.subheader("Evolução diária neste produto")
         df_evol = (
             df[df["Cód Item"] == item_sel]
@@ -825,7 +855,7 @@ with aba3:
         )
         st.line_chart(df_evol)
 
-    st.divider()
+    quebra_pagina()
     st.subheader("Ranking geral: melhor operador por produto")
     st.caption("Todos os produtos que foram fabricados por mais de um operador.")
     if itens_comparaveis:
@@ -892,7 +922,7 @@ with aba5:
         use_container_width=True,
     )
 
-    st.divider()
+    quebra_pagina()
 
     # ── Tabela de Máquinas ────────────────────────────────────────────────────
     st.subheader("🏭 Produção por Máquina")
@@ -935,7 +965,7 @@ with aba5:
     )
 
     # ── Totalizador geral ─────────────────────────────────────────────────────
-    st.divider()
+    quebra_pagina()
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("⚖️ Total KG", f"{df['Peso (KG)'].sum():,.0f} KG")
     c2.metric("🔢 Total UN", f"{df['Qtd (UN)'].sum():,.0f} UN")
@@ -1059,7 +1089,7 @@ with aba4:
             use_container_width=True,
         )
 
-    st.divider()
+    quebra_pagina()
 
     # ── Máquinas ──────────────────────────────────────────────────────────────
     st.subheader("🏭 Ranking de Máquinas")
