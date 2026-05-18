@@ -67,6 +67,7 @@ def bar_chart(labels, values, fmt=".1f", cor="#4C9BE8", height=340):
     ))
     fig.update_layout(
         height=height,
+        bargap=0.5,
         margin=dict(t=10, b=10, l=10, r=10),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -436,7 +437,7 @@ with aba2:
             marker_color=[cores[i % len(cores)] for i in range(len(df_comp))],
         ))
         fig_comp.update_layout(
-            height=300, margin=dict(t=10, b=10, l=10, r=10),
+            height=300, bargap=0.5, margin=dict(t=10, b=10, l=10, r=10),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
         )
@@ -571,7 +572,7 @@ with aba3:
             marker_color=[cores[i % len(cores)] for i in range(n_ops)],
         ))
         fig_kg.update_layout(
-            height=300, margin=dict(t=10, b=10, l=10, r=10),
+            height=300, bargap=0.5, margin=dict(t=10, b=10, l=10, r=10),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
         )
@@ -588,7 +589,7 @@ with aba3:
             marker_color=[cores[i % len(cores)] for i in range(n_ops)],
         ))
         fig_un.update_layout(
-            height=300, margin=dict(t=10, b=10, l=10, r=10),
+            height=300, bargap=0.5, margin=dict(t=10, b=10, l=10, r=10),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
         )
