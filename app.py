@@ -532,10 +532,10 @@ with aba2:
         + df_maq_resumo["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:22]
     )
 
-    # Cards com melhor operador — top 3
+    # Cards com melhor operador — top 3 visíveis, demais em expander
+    medalhas_m = ["🥇", "🥈", "🥉"]
     top_n = min(len(df_maq_resumo), 3)
     cols_m = st.columns(top_n)
-    medalhas_m = ["🥇", "🥈", "🥉"]
     for i in range(top_n):
         row = df_maq_resumo.iloc[i]
         with cols_m[i]:
@@ -545,6 +545,18 @@ with aba2:
                 delta=f"{row['Dias_Ativas']} dias ativos",
             )
             st.caption(f"🏅 Melhor: **{row['Melhor Op']}** ({row['Melhor KG/Dia']:.0f} KG/dia)")
+    if len(df_maq_resumo) > 3:
+        with st.expander(f"Ver todas as {len(df_maq_resumo)} máquinas"):
+            _rest_maq = df_maq_resumo.iloc[3:]
+            _cols_maq = st.columns(min(len(_rest_maq), 4))
+            for j, (_, row) in enumerate(_rest_maq.iterrows()):
+                with _cols_maq[j % 4]:
+                    st.metric(
+                        label=f"Máquina {row['Máquina'].split(' - ')[0]}",
+                        value=f"{row['KG / Dia']:.0f} KG/dia",
+                        delta=f"{row['Dias_Ativas']} dias ativos",
+                    )
+                    st.caption(f"🏅 Melhor: **{row['Melhor Op']}** ({row['Melhor KG/Dia']:.0f} KG/dia)")
 
     st.divider()
 
