@@ -979,20 +979,35 @@ with aba5:
         })
     _df_monthly = pd.DataFrame(_monthly)
 
-    # Tendência geral
-    _kg_ini = _df_monthly.iloc[0]["KG / Hora"]
-    _kg_fim = _df_monthly.iloc[-1]["KG / Hora"]
-    _delta_pct = (_kg_fim - _kg_ini) / _kg_ini * 100 if _kg_ini > 0 else 0
-    if _delta_pct > 3:
-        _tend_txt = f"📈 Melhorando  (+{_delta_pct:.1f}% de {_df_monthly.iloc[0]['Mês']} a {_df_monthly.iloc[-1]['Mês']})"
-        _tend_cor = "green"
-    elif _delta_pct < -3:
-        _tend_txt = f"📉 Piorando  ({_delta_pct:.1f}% de {_df_monthly.iloc[0]['Mês']} a {_df_monthly.iloc[-1]['Mês']})"
-        _tend_cor = "red"
-    else:
-        _tend_txt = f"➡️ Estável  ({_delta_pct:+.1f}% de {_df_monthly.iloc[0]['Mês']} a {_df_monthly.iloc[-1]['Mês']})"
-        _tend_cor = "gray"
-    st.markdown(f"**Tendência KG/hora:** :{_tend_cor}[{_tend_txt}]")
+    # Helper de tendência reutilizável
+    def _tendencia(ini, fim, label, unidade):
+        pct = (fim - ini) / ini * 100 if ini > 0 else 0
+        mes_ini = _df_monthly.iloc[0]["Mês"]
+        mes_fim = _df_monthly.iloc[-1]["Mês"]
+        if pct > 3:
+            txt = f"📈 Melhorando  (+{pct:.1f}% de {mes_ini} a {mes_fim})"
+            cor = "green"
+        elif pct < -3:
+            txt = f"📉 Piorando  ({pct:.1f}% de {mes_ini} a {mes_fim})"
+            cor = "red"
+        else:
+            txt = f"➡️ Estável  ({pct:+.1f}% de {mes_ini} a {mes_fim})"
+            cor = "gray"
+        return f"**Tendência {label}:** :{cor}[{txt}]"
+
+    _t1 = _tendencia(
+        _df_monthly.iloc[0]["KG / Hora"], _df_monthly.iloc[-1]["KG / Hora"],
+        "KG/hora", "KG/h"
+    )
+    _t2 = _tendencia(
+        _df_monthly.iloc[0]["KG / Dia"], _df_monthly.iloc[-1]["KG / Dia"],
+        "KG/dia", "KG/dia"
+    )
+    _t3 = _tendencia(
+        _df_monthly.iloc[0]["Total KG"], _df_monthly.iloc[-1]["Total KG"],
+        "KG/mês", "KG"
+    )
+    st.markdown(_t1 + "   |   " + _t2 + "   |   " + _t3)
 
     # Cards por mês com delta vs mês anterior
     _med_evo = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟",
@@ -1001,16 +1016,21 @@ with aba5:
     _cols_mes = st.columns(_n_mes)
     for _i, (_, _row) in enumerate(_df_monthly.iterrows()):
         with _cols_mes[_i]:
-            _dlt = None
+            _dlt_h = _dlt_d = _dlt_m = None
             if _i > 0:
-                _prev = _df_monthly.iloc[_i - 1]["KG / Hora"]
-                _curr = _row["KG / Hora"]
-                _dlt = f"{'▲' if _curr >= _prev else '▼'} {abs(_curr - _prev):.2f} vs anterior"
+                _ph = _df_monthly.iloc[_i - 1]["KG / Hora"]
+                _pd = _df_monthly.iloc[_i - 1]["KG / Dia"]
+                _pm = _df_monthly.iloc[_i - 1]["Total KG"]
+                _dlt_h = f"{'▲' if _row['KG / Hora'] >= _ph else '▼'} {abs(_row['KG / Hora'] - _ph):.2f} KG/h"
+                _dlt_d = f"{'▲' if _row['KG / Dia']  >= _pd else '▼'} {abs(_row['KG / Dia']  - _pd):.1f} KG/dia"
+                _dlt_m = f"{'▲' if _row['Total KG']  >= _pm else '▼'} {abs(_row['Total KG']  - _pm):,.0f} KG/mês"
             st.metric(
                 label=f"{_med_evo[_i] if _i < len(_med_evo) else ''} {_row['Mês']}",
                 value=f"{_row['KG / Hora']:.2f} KG/h",
-                delta=_dlt,
+                delta=_dlt_h,
             )
+            st.metric(label="KG/dia", value=f"{_row['KG / Dia']:.1f}", delta=_dlt_d)
+            st.metric(label="KG/mês", value=f"{_row['Total KG']:,.0f}", delta=_dlt_m)
 
     quebra_pagina()
 
