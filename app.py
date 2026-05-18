@@ -274,8 +274,8 @@ aba1, aba2, aba3, aba4, aba5 = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
-    "📋 Dados Brutos",
     "🏅 Top Produção",
+    "📋 Dados Brutos",
 ])
 
 
@@ -843,8 +843,8 @@ with aba3:
         st.info("Nenhum produto compartilhado entre operadores nos PDFs carregados.")
 
 
-# ── Aba 4: Dados Brutos ───────────────────────────────────────────────────────
-with aba4:
+# ── Aba 5: Dados Brutos ───────────────────────────────────────────────────────
+with aba5:
     st.header("Base de Dados Unificada")
 
     col1, col2, col3 = st.columns(3)
@@ -871,8 +871,8 @@ with aba4:
     st.download_button(label="📥 Baixar CSV", data=csv, file_name="producao_polimpress.csv", mime="text/csv")
 
 
-# ── Aba 5: Top Produção ───────────────────────────────────────────────────────
-with aba5:
+# ── Aba 4: Top Produção ───────────────────────────────────────────────────────
+with aba4:
     st.header("🏅 Top Produção — Ranking por Volume Total")
     st.caption("Quem e quais máquinas produziram mais em quantidade absoluta (KG e UN) no período analisado.")
 
