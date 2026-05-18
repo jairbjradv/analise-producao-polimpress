@@ -270,11 +270,12 @@ st.success(
     f"{df['Operador'].nunique()} operador(es)"
 )
 
-aba1, aba2, aba3, aba4 = st.tabs([
+aba1, aba2, aba3, aba4, aba5 = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
     "📋 Dados Brutos",
+    "🏅 Top Produção",
 ])
 
 
@@ -868,3 +869,148 @@ with aba4:
     st.dataframe(df_exib, use_container_width=True, hide_index=True)
     csv = df_exib.to_csv(index=False).encode("utf-8")
     st.download_button(label="📥 Baixar CSV", data=csv, file_name="producao_polimpress.csv", mime="text/csv")
+
+
+# ── Aba 5: Top Produção ───────────────────────────────────────────────────────
+with aba5:
+    st.header("🏅 Top Produção — Ranking por Volume Total")
+    st.caption("Quem e quais máquinas produziram mais em quantidade absoluta (KG e UN) no período analisado.")
+
+    _med5 = ["🥇", "🥈", "🥉"]
+
+    def _cards_expander(df_rank, label_col, value_col, value_fmt, value_suffix, expander_label, delta_col=None, delta_fmt=None, delta_suffix=""):
+        """Renderiza top-3 cards + expander para o restante."""
+        n = len(df_rank)
+        top3 = min(n, 3)
+        cols = st.columns(top3)
+        for i in range(top3):
+            row = df_rank.iloc[i]
+            val_str = f"{row[value_col]:{value_fmt}}{value_suffix}"
+            dlt_str = None
+            if delta_col and delta_fmt:
+                dlt_str = f"{row[delta_col]:{delta_fmt}}{delta_suffix}"
+            with cols[i]:
+                st.metric(
+                    label=f"{_med5[i]} {row[label_col]}",
+                    value=val_str,
+                    delta=dlt_str,
+                )
+        if n > 3:
+            with st.expander(expander_label):
+                rest = df_rank.iloc[3:]
+                cols2 = st.columns(min(len(rest), 5))
+                for j, (_, row) in enumerate(rest.iterrows()):
+                    val_str = f"{row[value_col]:{value_fmt}}{value_suffix}"
+                    dlt_str = None
+                    if delta_col and delta_fmt:
+                        dlt_str = f"{row[delta_col]:{delta_fmt}}{delta_suffix}"
+                    with cols2[j % 5]:
+                        st.metric(
+                            label=row[label_col],
+                            value=val_str,
+                            delta=dlt_str,
+                        )
+
+    # ── Operadores ────────────────────────────────────────────────────────────
+    st.subheader("👷 Ranking de Operadores")
+    op_totais = (
+        df.groupby(["Operador", "Nome Curto"])
+        .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"))
+        .reset_index()
+    )
+
+    col_op1, col_op2 = st.columns(2)
+
+    with col_op1:
+        st.markdown("#### 📦 Total de KG produzido")
+        op_kg = op_totais.sort_values("Total_KG", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            op_kg,
+            label_col="Nome Curto",
+            value_col="Total_KG",
+            value_fmt=",.0f",
+            value_suffix=" KG",
+            expander_label=f"Ver todos os {len(op_kg)} operadores (KG)",
+            delta_col="Total_UN",
+            delta_fmt=",.0f",
+            delta_suffix=" UN",
+        )
+        st.plotly_chart(
+            bar_chart(op_kg["Nome Curto"], op_kg["Total_KG"], fmt=",.0f", cor="#4C9BE8", max_show=10),
+            use_container_width=True,
+        )
+
+    with col_op2:
+        st.markdown("#### 🔢 Total de UN produzido")
+        op_un = op_totais.sort_values("Total_UN", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            op_un,
+            label_col="Nome Curto",
+            value_col="Total_UN",
+            value_fmt=",.0f",
+            value_suffix=" UN",
+            expander_label=f"Ver todos os {len(op_un)} operadores (UN)",
+            delta_col="Total_KG",
+            delta_fmt=",.0f",
+            delta_suffix=" KG",
+        )
+        st.plotly_chart(
+            bar_chart(op_un["Nome Curto"], op_un["Total_UN"], fmt=",.0f", cor="#5CB85C", max_show=10),
+            use_container_width=True,
+        )
+
+    st.divider()
+
+    # ── Máquinas ──────────────────────────────────────────────────────────────
+    st.subheader("🏭 Ranking de Máquinas")
+    maq_totais = (
+        df.groupby("Máquina")
+        .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"))
+        .reset_index()
+    )
+    maq_totais["Máquina Curta"] = (
+        maq_totais["Máquina"].str.extract(r"^(\d+)")[0].fillna("")
+        + " - "
+        + maq_totais["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:18]
+    )
+    maq_totais["Nº Máquina"] = maq_totais["Máquina"].str.extract(r"^(\d+)")[0].fillna(maq_totais["Máquina"])
+
+    col_mq1, col_mq2 = st.columns(2)
+
+    with col_mq1:
+        st.markdown("#### 📦 Total de KG por Máquina")
+        maq_kg = maq_totais.sort_values("Total_KG", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            maq_kg,
+            label_col="Nº Máquina",
+            value_col="Total_KG",
+            value_fmt=",.0f",
+            value_suffix=" KG",
+            expander_label=f"Ver todas as {len(maq_kg)} máquinas (KG)",
+            delta_col="Total_UN",
+            delta_fmt=",.0f",
+            delta_suffix=" UN",
+        )
+        st.plotly_chart(
+            bar_chart(maq_kg["Máquina Curta"], maq_kg["Total_KG"], fmt=",.0f", cor="#4C9BE8", max_show=5),
+            use_container_width=True,
+        )
+
+    with col_mq2:
+        st.markdown("#### 🔢 Total de UN por Máquina")
+        maq_un = maq_totais.sort_values("Total_UN", ascending=False).reset_index(drop=True)
+        _cards_expander(
+            maq_un,
+            label_col="Nº Máquina",
+            value_col="Total_UN",
+            value_fmt=",.0f",
+            value_suffix=" UN",
+            expander_label=f"Ver todas as {len(maq_un)} máquinas (UN)",
+            delta_col="Total_KG",
+            delta_fmt=",.0f",
+            delta_suffix=" KG",
+        )
+        st.plotly_chart(
+            bar_chart(maq_un["Máquina Curta"], maq_un["Total_UN"], fmt=",.0f", cor="#5CB85C", max_show=5),
+            use_container_width=True,
+        )
