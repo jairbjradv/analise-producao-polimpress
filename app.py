@@ -79,8 +79,11 @@ def _parse_br_float(s: str) -> float:
     return float(s.replace(".", "").replace(",", "."))
 
 
-def bar_chart(labels, values, fmt=".1f", cor="#4C9BE8", height=340):
-    """Gráfico de barras com valor dentro da barra."""
+def bar_chart(labels, values, fmt=".1f", cor="#4C9BE8", height=340, max_show=None):
+    """Gráfico de barras com valor dentro da barra. max_show=N exibe N barras e adiciona barra deslizante."""
+    labels = list(labels)
+    values = list(values)
+    n = len(labels)
     fig = go.Figure(go.Bar(
         x=labels,
         y=values,
@@ -89,15 +92,21 @@ def bar_chart(labels, values, fmt=".1f", cor="#4C9BE8", height=340):
         textfont=dict(size=14, color="white"),
         marker_color=cor,
     ))
+    xaxis_cfg = dict(tickfont=dict(size=13))
+    h_extra = 0
+    if max_show and n > max_show:
+        xaxis_cfg["range"]       = [-0.5, max_show - 0.5]
+        xaxis_cfg["rangeslider"] = dict(visible=True, thickness=0.06)
+        h_extra = 45
     fig.update_layout(
-        height=height,
+        height=height + h_extra,
         bargap=0.5,
         margin=dict(t=10, b=10, l=10, r=10),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(color="white"),
         yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-        xaxis=dict(tickfont=dict(size=13)),
+        xaxis=xaxis_cfg,
     )
     return fig
 
@@ -330,25 +339,38 @@ with aba1:
 
     resumo = calcular_resumo_operadores(df)
 
-    # Cards
+    # Cards — top 10 visíveis, demais em expander
     medalhas = ["🥇", "🥈", "🥉"]
-    cols = st.columns(len(resumo))
-    for i, row in resumo.iterrows():
+    _TOP = min(len(resumo), 10)
+    cols = st.columns(_TOP)
+    for i in range(_TOP):
+        row = resumo.iloc[i]
         with cols[i]:
             st.metric(
                 label=f"{medalhas[i] if i < 3 else ''} {row['Nome Curto']}",
                 value=f"{row['KG / Hora']:.2f} KG/hora",
                 delta=f"{row['Turno']} · {row['Dias Trabalhados']} dias · {row['Horas Trabalhadas']:.0f}h",
             )
+    if len(resumo) > 10:
+        with st.expander(f"Ver todos os {len(resumo)} operadores"):
+            _rest = resumo.iloc[10:]
+            _cols2 = st.columns(min(len(_rest), 5))
+            for j, (_, row) in enumerate(_rest.iterrows()):
+                with _cols2[j % 5]:
+                    st.metric(
+                        label=row["Nome Curto"],
+                        value=f"{row['KG / Hora']:.2f} KG/hora",
+                        delta=f"{row['Turno']} · {row['Dias Trabalhados']} dias",
+                    )
 
     st.divider()
 
     col_a, col_b = st.columns(2)
     with col_a:
         st.subheader("KG / Hora trabalhada (métrica principal)")
-        st.caption("Elimina diferença de turno, sábados e dias trabalhados.")
+        st.caption("Elimina diferença de turno, sábados e dias trabalhados. ← arraste a barra para ver todos →")
         st.plotly_chart(
-            bar_chart(resumo["Nome Curto"], resumo["KG / Hora"], fmt=".2f"),
+            bar_chart(resumo["Nome Curto"], resumo["KG / Hora"], fmt=".2f", max_show=10),
             use_container_width=True,
         )
 
@@ -356,7 +378,7 @@ with aba1:
         st.subheader("UN / Hora trabalhada")
         st.caption("UN alto com KG baixo = produtos leves — compare sempre com Peso Médio/peça.")
         st.plotly_chart(
-            bar_chart(resumo["Nome Curto"], resumo["UN / Hora"], fmt=".0f", cor="#5CB85C"),
+            bar_chart(resumo["Nome Curto"], resumo["UN / Hora"], fmt=".0f", cor="#5CB85C", max_show=10),
             use_container_width=True,
         )
 
@@ -364,7 +386,7 @@ with aba1:
     st.subheader("Peso médio por peça (proxy de complexidade)")
     st.caption("Sacos mais pesados são maiores/mais espessos — máquina roda mais devagar.")
     st.plotly_chart(
-        bar_chart(resumo["Nome Curto"], resumo["Peso Médio/peça (g)"], fmt=".1f", cor="#F0AD4E"),
+        bar_chart(resumo["Nome Curto"], resumo["Peso Médio/peça (g)"], fmt=".1f", cor="#F0AD4E", max_show=10),
         use_container_width=True,
     )
 
@@ -445,7 +467,7 @@ with aba1:
                     )
 
             st.plotly_chart(
-                bar_chart(r_m["Nome Curto"], r_m["KG / Hora"], fmt=".2f"),
+                bar_chart(r_m["Nome Curto"], r_m["KG / Hora"], fmt=".2f", max_show=5),
                 use_container_width=True,
             )
 
@@ -497,10 +519,10 @@ with aba2:
         + df_maq_resumo["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:22]
     )
 
-    # Cards com melhor operador
-    top_n = min(len(df_maq_resumo), 4)
+    # Cards com melhor operador — top 3
+    top_n = min(len(df_maq_resumo), 3)
     cols_m = st.columns(top_n)
-    medalhas_m = ["🥇", "🥈", "🥉", "4️⃣"]
+    medalhas_m = ["🥇", "🥈", "🥉"]
     for i in range(top_n):
         row = df_maq_resumo.iloc[i]
         with cols_m[i]:
@@ -517,13 +539,13 @@ with aba2:
     with col_a:
         st.subheader("KG / Dia por Máquina")
         st.plotly_chart(
-            bar_chart(df_maq_resumo["Máquina Curta"], df_maq_resumo["KG / Dia"], fmt=".0f"),
+            bar_chart(df_maq_resumo["Máquina Curta"], df_maq_resumo["KG / Dia"], fmt=".0f", max_show=5),
             use_container_width=True,
         )
     with col_b:
         st.subheader("UN / Dia por Máquina")
         st.plotly_chart(
-            bar_chart(df_maq_resumo["Máquina Curta"], df_maq_resumo["UN / Dia"], fmt=".0f", cor="#5CB85C"),
+            bar_chart(df_maq_resumo["Máquina Curta"], df_maq_resumo["UN / Dia"], fmt=".0f", cor="#5CB85C", max_show=5),
             use_container_width=True,
         )
 
@@ -540,20 +562,28 @@ with aba2:
     )
 
     df_comp = df_maq_op_dia[df_maq_op_dia["Máquina"] == maq_sel_comp].sort_values("KG / Dia (op)", ascending=False)
+    n_comp  = len(df_comp)
     col_g, col_t = st.columns([1, 1])
     with col_g:
+        xaxis_comp = dict(tickfont=dict(size=13))
+        h_comp = 300
+        if n_comp > 5:
+            xaxis_comp["range"]       = [-0.5, 4.5]
+            xaxis_comp["rangeslider"] = dict(visible=True, thickness=0.06)
+            h_comp = 345
         fig_comp = go.Figure(go.Bar(
             x=df_comp["Nome Curto"],
             y=df_comp["KG / Dia (op)"],
             text=df_comp["KG / Dia (op)"].apply(lambda v: f"{v:.0f}"),
             textposition="inside",
             textfont=dict(size=15, color="white"),
-            marker_color=[cores[i % len(cores)] for i in range(len(df_comp))],
+            marker_color=[cores[i % len(cores)] for i in range(n_comp)],
         ))
         fig_comp.update_layout(
-            height=300, bargap=0.5, margin=dict(t=10, b=10, l=10, r=10),
+            height=h_comp, bargap=0.5, margin=dict(t=10, b=10, l=10, r=10),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+            xaxis=xaxis_comp,
         )
         st.plotly_chart(fig_comp, use_container_width=True)
 
