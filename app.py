@@ -273,11 +273,12 @@ st.success(
     f"{df['Operador'].nunique()} operador(es)"
 )
 
-aba1, aba2, aba3, aba4, aba5 = st.tabs([
+aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
     "🏅 Top Produção",
+    "📊 Resumo Geral",
     "📋 Dados Brutos",
 ])
 
@@ -846,8 +847,104 @@ with aba3:
         st.info("Nenhum produto compartilhado entre operadores nos PDFs carregados.")
 
 
-# ── Aba 5: Dados Brutos ───────────────────────────────────────────────────────
+# ── Aba 5: Resumo Geral ──────────────────────────────────────────────────────
 with aba5:
+    st.header("📊 Resumo Geral de Produção")
+    st.caption("Soma total produzida no período analisado, por operador e por máquina.")
+
+    # ── Tabela de Operadores ──────────────────────────────────────────────────
+    st.subheader("👷 Produção por Operador")
+
+    op_resumo = (
+        df.groupby(["Operador", "Nome Curto", "Turno"])
+        .agg(
+            Total_KG=("Peso (KG)", "sum"),
+            Total_UN=("Qtd (UN)", "sum"),
+            Apontamentos=("Cód Item", "count"),
+        )
+        .reset_index()
+        .sort_values("Total_KG", ascending=False)
+        .reset_index(drop=True)
+    )
+    op_resumo.index = op_resumo.index + 1  # começa em 1
+
+    # Linha de total
+    total_op = pd.DataFrame([{
+        "Operador": "─── TOTAL ───",
+        "Nome Curto": "TOTAL",
+        "Turno": "",
+        "Total_KG": op_resumo["Total_KG"].sum(),
+        "Total_UN": op_resumo["Total_UN"].sum(),
+        "Apontamentos": op_resumo["Apontamentos"].sum(),
+    }])
+    total_op.index = [""]
+
+    df_op_exib = pd.concat([
+        op_resumo[["Operador", "Turno", "Total_KG", "Total_UN", "Apontamentos"]],
+        total_op[["Operador", "Turno", "Total_KG", "Total_UN", "Apontamentos"]],
+    ])
+
+    st.dataframe(
+        df_op_exib.rename(columns={
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+        }),
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    # ── Tabela de Máquinas ────────────────────────────────────────────────────
+    st.subheader("🏭 Produção por Máquina")
+
+    maq_resumo = (
+        df.groupby("Máquina")
+        .agg(
+            Total_KG=("Peso (KG)", "sum"),
+            Total_UN=("Qtd (UN)", "sum"),
+            Apontamentos=("Cód Item", "count"),
+            Operadores=("Nome Curto", lambda x: len(x.unique())),
+        )
+        .reset_index()
+        .sort_values("Total_KG", ascending=False)
+        .reset_index(drop=True)
+    )
+    maq_resumo.index = maq_resumo.index + 1
+
+    total_maq = pd.DataFrame([{
+        "Máquina": "─── TOTAL ───",
+        "Total_KG": maq_resumo["Total_KG"].sum(),
+        "Total_UN": maq_resumo["Total_UN"].sum(),
+        "Apontamentos": maq_resumo["Apontamentos"].sum(),
+        "Operadores": df["Nome Curto"].nunique(),
+    }])
+    total_maq.index = [""]
+
+    df_maq_exib = pd.concat([
+        maq_resumo[["Máquina", "Total_KG", "Total_UN", "Apontamentos", "Operadores"]],
+        total_maq[["Máquina", "Total_KG", "Total_UN", "Apontamentos", "Operadores"]],
+    ])
+
+    st.dataframe(
+        df_maq_exib.rename(columns={
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+            "Operadores": "Nº Operadores",
+        }),
+        use_container_width=True,
+    )
+
+    # ── Totalizador geral ─────────────────────────────────────────────────────
+    st.divider()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("⚖️ Total KG", f"{df['Peso (KG)'].sum():,.0f} KG")
+    c2.metric("🔢 Total UN", f"{df['Qtd (UN)'].sum():,.0f} UN")
+    c3.metric("👷 Operadores", df["Operador"].nunique())
+    c4.metric("🏭 Máquinas", df["Máquina"].nunique())
+
+
+# ── Aba 6: Dados Brutos ───────────────────────────────────────────────────────
+with aba6:
     st.header("Base de Dados Unificada")
 
     col1, col2, col3 = st.columns(3)
