@@ -302,11 +302,12 @@ st.success(
     f"{df['Operador'].nunique()} operador(es)"
 )
 
-aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs([
+aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
     "🏅 Top Produção",
+    "📅 KG / Dia",
     "📊 Resumo Geral",
     "📋 Dados Brutos",
 ])
@@ -356,6 +357,47 @@ def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
     return r.sort_values("KG / Hora", ascending=False).reset_index(drop=True)
 
 
+# ── Pré-cálculos globais (reutilizados em múltiplas abas) ────────────────────
+resumo = calcular_resumo_operadores(df)
+
+# Resumo de máquinas (global)
+_df_maq_op_dia_g = (
+    df.groupby(["Máquina", "Nome Curto", "Turno"])
+    .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"), Dias=("Data", "nunique"))
+    .reset_index()
+)
+_df_maq_op_dia_g["KG / Dia (op)"] = (_df_maq_op_dia_g["Total_KG"] / _df_maq_op_dia_g["Dias"]).round(1)
+
+_melhor_por_maq_g = (
+    _df_maq_op_dia_g.sort_values("KG / Dia (op)", ascending=False)
+    .drop_duplicates("Máquina")
+    .set_index("Máquina")[["Nome Curto", "KG / Dia (op)"]]
+    .rename(columns={"Nome Curto": "Melhor Op", "KG / Dia (op)": "Melhor KG/Dia"})
+)
+
+df_maq_resumo_g = (
+    df.groupby("Máquina")
+    .agg(
+        Total_KG=("Peso (KG)", "sum"),
+        Total_UN=("Qtd (UN)", "sum"),
+        Dias_Ativas=("Data", "nunique"),
+        Apontamentos=("Cód Item", "count"),
+        Operadores=("Nome Curto", lambda x: ", ".join(sorted(x.unique()))),
+    )
+    .reset_index()
+    .join(_melhor_por_maq_g, on="Máquina")
+)
+df_maq_resumo_g["KG / Dia"] = (df_maq_resumo_g["Total_KG"] / df_maq_resumo_g["Dias_Ativas"]).round(1)
+df_maq_resumo_g["UN / Dia"] = (df_maq_resumo_g["Total_UN"] / df_maq_resumo_g["Dias_Ativas"]).round(0)
+df_maq_resumo_g = df_maq_resumo_g.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
+df_maq_resumo_g["Máquina Curta"] = (
+    df_maq_resumo_g["Máquina"].str.extract(r"^(\d+)")[0].fillna("")
+    + " - "
+    + df_maq_resumo_g["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:22]
+)
+df_maq_resumo_g["Nº Máquina"] = df_maq_resumo_g["Máquina"].str.extract(r"^(\d+)")[0].fillna(df_maq_resumo_g["Máquina"])
+
+
 # ── Aba 1: Ranking de Operadores ─────────────────────────────────────────────
 with aba1:
     st.header("Ranking de Operadores — Métricas Normalizadas")
@@ -370,8 +412,6 @@ with aba1:
         | 2 (13:40–22:00) | **7h50** | **4h50** |
         | 3 (22:00–05:20) | **6h50** | **4h20** |
         """)
-
-    resumo = calcular_resumo_operadores(df)
 
     # Cards — top 3 visíveis, demais em expander
     medalhas = ["🥇", "🥈", "🥉"]
@@ -877,8 +917,139 @@ with aba3:
         st.info("Nenhum produto compartilhado entre operadores nos PDFs carregados.")
 
 
-# ── Aba 5: Resumo Geral ──────────────────────────────────────────────────────
+# ── Aba 5: KG / Dia ──────────────────────────────────────────────────────────
 with aba5:
+    st.header("📅 Ranking por KG / Dia")
+    st.caption("Média de quilos produzidos por dia trabalhado — métrica que mostra ritmo diário independente do turno.")
+
+    _med_dia = ["🥇", "🥈", "🥉"]
+
+    def _cards_kgdia(df_rank, label_col, value_col, value_suffix, extra_col, extra_suffix, expander_txt, n_cols=5):
+        n = len(df_rank)
+        top3 = min(n, 3)
+        cols = st.columns(top3)
+        for i in range(top3):
+            row = df_rank.iloc[i]
+            with cols[i]:
+                st.metric(
+                    label=f"{_med_dia[i]} {row[label_col]}",
+                    value=f"{row[value_col]:,.1f} {value_suffix}",
+                    delta=f"{row[extra_col]:,.1f} {extra_suffix}" if extra_col else None,
+                )
+        if n > 3:
+            with st.expander(expander_txt):
+                rest = df_rank.iloc[3:]
+                cols2 = st.columns(min(len(rest), n_cols))
+                for j, (_, row) in enumerate(rest.iterrows()):
+                    with cols2[j % n_cols]:
+                        st.metric(
+                            label=row[label_col],
+                            value=f"{row[value_col]:,.1f} {value_suffix}",
+                            delta=f"{row[extra_col]:,.1f} {extra_suffix}" if extra_col else None,
+                        )
+
+    # ── Operadores ────────────────────────────────────────────────────────────
+    st.subheader("👷 Operadores — KG / Dia")
+
+    op_dia = resumo.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
+
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        st.markdown("#### 📦 KG / Dia")
+        _cards_kgdia(
+            op_dia, "Nome Curto", "KG / Dia", "KG/dia",
+            "KG / Hora", "KG/hora",
+            f"Ver todos os {len(op_dia)} operadores",
+        )
+        st.plotly_chart(
+            bar_chart(op_dia["Nome Curto"], op_dia["KG / Dia"], fmt=",.1f", cor="#4C9BE8", max_show=10),
+            use_container_width=True,
+        )
+
+    with col_d2:
+        st.markdown("#### 🕐 Horas trabalhadas no período")
+        op_horas = resumo.sort_values("Horas Trabalhadas", ascending=False).reset_index(drop=True)
+        _cards_kgdia(
+            op_horas, "Nome Curto", "Horas Trabalhadas", "h",
+            "Dias Trabalhados", "dias",
+            f"Ver todos os {len(op_horas)} operadores",
+        )
+        st.plotly_chart(
+            bar_chart(op_horas["Nome Curto"], op_horas["Horas Trabalhadas"], fmt=",.0f", cor="#F0AD4E", max_show=10),
+            use_container_width=True,
+        )
+
+    st.divider()
+
+    # ── Tabela resumo operadores ──────────────────────────────────────────────
+    st.subheader("📋 Tabela completa — Operadores")
+    st.dataframe(
+        op_dia[[
+            "Nome Curto", "Turno", "Dias Trabalhados", "Horas Trabalhadas",
+            "KG / Dia", "KG / Hora", "UN / Hora", "Total_KG", "Total_UN",
+        ]].rename(columns={
+            "Nome Curto": "Operador",
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+        }),
+        use_container_width=True, hide_index=True,
+    )
+
+    quebra_pagina()
+
+    # ── Máquinas ──────────────────────────────────────────────────────────────
+    st.subheader("🏭 Máquinas — KG / Dia")
+
+    maq_dia = df_maq_resumo_g.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
+
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.markdown("#### 📦 KG / Dia por Máquina")
+        _cards_kgdia(
+            maq_dia, "Nº Máquina", "KG / Dia", "KG/dia",
+            "UN / Dia", "UN/dia",
+            f"Ver todas as {len(maq_dia)} máquinas",
+            n_cols=4,
+        )
+        st.plotly_chart(
+            bar_chart(maq_dia["Máquina Curta"], maq_dia["KG / Dia"], fmt=",.1f", cor="#4C9BE8", max_show=5),
+            use_container_width=True,
+        )
+
+    with col_m2:
+        st.markdown("#### 🔢 UN / Dia por Máquina")
+        maq_un_dia = df_maq_resumo_g.sort_values("UN / Dia", ascending=False).reset_index(drop=True)
+        _cards_kgdia(
+            maq_un_dia, "Nº Máquina", "UN / Dia", "UN/dia",
+            "KG / Dia", "KG/dia",
+            f"Ver todas as {len(maq_un_dia)} máquinas",
+            n_cols=4,
+        )
+        st.plotly_chart(
+            bar_chart(maq_un_dia["Máquina Curta"], maq_un_dia["UN / Dia"], fmt=",.0f", cor="#5CB85C", max_show=5),
+            use_container_width=True,
+        )
+
+    st.divider()
+
+    st.subheader("📋 Tabela completa — Máquinas")
+    st.dataframe(
+        maq_dia[[
+            "Nº Máquina", "Máquina", "Dias_Ativas", "KG / Dia", "UN / Dia",
+            "Total_KG", "Total_UN", "Melhor Op", "Melhor KG/Dia",
+        ]].rename(columns={
+            "Nº Máquina": "Máq.",
+            "Dias_Ativas": "Dias Ativas",
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+            "Melhor Op": "Melhor Operador",
+        }),
+        use_container_width=True, hide_index=True,
+    )
+
+
+# ── Aba 6: Resumo Geral ──────────────────────────────────────────────────────
+with aba6:
     st.header("📊 Resumo Geral de Produção")
     st.caption("Soma total produzida no período analisado, por operador e por máquina.")
 
@@ -973,8 +1144,8 @@ with aba5:
     c4.metric("🏭 Máquinas", df["Máquina"].nunique())
 
 
-# ── Aba 6: Dados Brutos ───────────────────────────────────────────────────────
-with aba6:
+# ── Aba 7: Dados Brutos ───────────────────────────────────────────────────────
+with aba7:
     st.header("Base de Dados Unificada")
 
     col1, col2, col3 = st.columns(3)
