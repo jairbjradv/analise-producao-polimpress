@@ -721,6 +721,30 @@ with aba3:
 
     st.info(f"**{item_sel}** · {desc_map[item_sel]}")
 
+    # ── Top 3 com medalhas ───────────────────────────────────────────────────
+    _med_item = ["🥇", "🥈", "🥉"]
+    _top3_item = min(n_ops, 3)
+    _cols_item = st.columns(_top3_item)
+    for i in range(_top3_item):
+        row = df_comp_item.iloc[i]
+        with _cols_item[i]:
+            st.metric(
+                label=f"{_med_item[i]} {row['Nome Curto']}",
+                value=f"{row['KG / Hora']:.2f} KG/hora",
+                delta=f"{row['Turno']} · {row['Dias']} dias · {row['Horas']:.0f}h",
+            )
+    if n_ops > 3:
+        with st.expander(f"Ver todos os {n_ops} operadores"):
+            _rest_item = df_comp_item.iloc[3:]
+            _cols_rest_item = st.columns(min(len(_rest_item), 5))
+            for j, (_, row) in enumerate(_rest_item.iterrows()):
+                with _cols_rest_item[j % 5]:
+                    st.metric(
+                        label=row["Nome Curto"],
+                        value=f"{row['KG / Hora']:.2f} KG/hora",
+                        delta=f"{row['Dias']} dias",
+                    )
+
     cores = ["#4C9BE8", "#5CB85C", "#F0AD4E", "#D9534F"]
 
     col_g, col_t = st.columns([1, 1])
