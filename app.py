@@ -1399,7 +1399,9 @@ with aba9:
             if _df_atencao.empty:
                 st.success("✅ Nenhum operador em atenção no período — todos dentro de 10% do melhor em cada máquina.")
             else:
-                st.dataframe(_df_atencao, use_container_width=True, hide_index=True)
+                _altura_atencao = 38 + len(_df_atencao) * 35 + 2
+                st.dataframe(_df_atencao, use_container_width=True, hide_index=True,
+                             height=_altura_atencao)
 
     else:
         # ── Visão por máquina específica ─────────────────────────────────────
@@ -1617,14 +1619,6 @@ with aba9:
             st.subheader("📋 Tabela detalhada")
             st.caption("🟢 até 10% abaixo do melhor  ·  🟡 entre 10% e 25%  ·  🔴 mais de 25% abaixo")
 
-            # Tabela: verdes primeiro, depois do pior para o melhor
-            _r_cmp["_is_green"] = (_r_cmp["Semáforo"] == "🟢").astype(int)
-            _r_cmp["_pct_num"]  = _r_cmp["vs Melhor"].str.replace("%", "").str.replace("+", "").astype(float)
-            _r_cmp = _r_cmp.sort_values(
-                ["_is_green", "_pct_num"],
-                ascending=[False, True],   # verde primeiro; depois mais negativo primeiro
-            ).reset_index(drop=True)
-
             _df_exib_cmp = _r_cmp[[
                 "Semáforo", "Nome Curto", "Turno", "Dias na Máq.", "Horas",
                 "KG / Hora", "KG / Dia", "vs Melhor", "Gap Período fmt", "Gap / Dia fmt",
@@ -1692,7 +1686,9 @@ with aba9:
                  pd.DataFrame([_row_total])],
                 ignore_index=True,
             )
-            st.dataframe(_df_exib_final, use_container_width=True, hide_index=True)
+            _altura_final = 38 + len(_df_exib_final) * 35 + 2
+            st.dataframe(_df_exib_final, use_container_width=True, hide_index=True,
+                         height=_altura_final)
             st.caption(
                 f"📦 Total produzido = **{_total_maq_relatorio:,.0f} KG** · "
                 f"📉 KG deixados na mesa = **{_gap_maq_periodo:,.0f} KG** · "
