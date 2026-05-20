@@ -58,7 +58,7 @@ _RE_FUNCIONARIO = re.compile(r"^Funcion.{0,2}rio:\s*\d+\s*-\s*(.+)")
 _RE_TURNO       = re.compile(r"Turno:\s*(\d+)")
 _RE_DIA         = re.compile(r"Dia:\s*(\d{2}/\d{2}/\d{4})")
 _RE_RECURSO     = re.compile(r"Recurso:\s*(.+)")
-_RE_PERIODO     = re.compile(r"Per.{0,2}odo:\s*(\d{2}/\d{2}/\d{4})\s*-\s*(\d{2}/\d{2}/\d{4})(?:.*?Turno\*:\s*(\d+))?")
+_RE_PERIODO     = re.compile(r"Per.{0,2}odo:\s*(\d{2}/\d{2}/\d{4})\s*-\s*(\d{2}/\d{2}/\d{4})(?:.*?Turno\*?:\s*(\d+))?")  # \*? captura "Turno:" e "Turno*:"
 
 _HORAS: dict[tuple[int, bool], float] = {
     (1, False): 7 + 50 / 60,
@@ -279,46 +279,24 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
     return dados
 
 
-# ── Upload por turno ─────────────────────────────────────────────────────────
-st.markdown("### 📂 Carregar relatórios por turno")
-st.caption("Cada PDF será marcado automaticamente com o turno correspondente.")
+# ── Upload ───────────────────────────────────────────────────────────────────
+arquivos_pdf = st.file_uploader(
+    "Arraste e solte os PDFs de produção aqui (pode ser 1 por turno ou todos juntos)",
+    type=["pdf"],
+    accept_multiple_files=True,
+)
 
-_col_t1, _col_t2, _col_t3 = st.columns(3)
-with _col_t1:
-    _pdfs_t1 = st.file_uploader("🔵 Turno 1", type=["pdf"],
-                                 accept_multiple_files=True, key="up_t1")
-with _col_t2:
-    _pdfs_t2 = st.file_uploader("🟠 Turno 2", type=["pdf"],
-                                 accept_multiple_files=True, key="up_t2")
-with _col_t3:
-    _pdfs_t3 = st.file_uploader("🟢 Turno 3", type=["pdf"],
-                                 accept_multiple_files=True, key="up_t3")
-
-_uploads = [
-    (_pdfs_t1, "Turno 1"),
-    (_pdfs_t2, "Turno 2"),
-    (_pdfs_t3, "Turno 3"),
-]
-
-if not any(pdfs for pdfs, _ in _uploads):
+if not arquivos_pdf:
     st.info("⬆️ Carregue pelo menos um PDF para iniciar a análise.")
     st.stop()
 
 todos_dados: list[dict] = []
 erros: list[str] = []
-_contagem_turnos: dict[str, int] = {}
-
-for _lista_pdfs, _label_turno in _uploads:
-    for arquivo in (_lista_pdfs or []):
-        try:
-            _registros = extrair_dados_pdf(arquivo)
-            # Força o turno de TODOS os registros deste arquivo
-            for _r in _registros:
-                _r["Turno"] = _label_turno
-            todos_dados.extend(_registros)
-            _contagem_turnos[_label_turno] = _contagem_turnos.get(_label_turno, 0) + len(_registros)
-        except Exception as e:
-            erros.append(f"{arquivo.name}: {e}")
+for arquivo in arquivos_pdf:
+    try:
+        todos_dados.extend(extrair_dados_pdf(arquivo))
+    except Exception as e:
+        erros.append(f"{arquivo.name}: {e}")
 
 for msg in erros:
     st.error(f"Erro ao processar — {msg}")
@@ -332,11 +310,12 @@ df["Data_dt"]           = pd.to_datetime(df["Data"], format="%d/%m/%Y")
 df["Periodo_Inicio_dt"] = pd.to_datetime(df["Periodo_Inicio"], format="%d/%m/%Y", errors="coerce")
 df["Periodo_Fim_dt"]    = pd.to_datetime(df["Periodo_Fim"],    format="%d/%m/%Y", errors="coerce")
 
+_turnos_no_df = sorted(df["Turno"].unique())
 _resumo_turnos = "  ·  ".join(
-    f"**{t}**: {n} reg." for t, n in sorted(_contagem_turnos.items()) if n > 0
+    f"**{t}**: {(df['Turno']==t).sum()} reg." for t in _turnos_no_df
 )
 st.success(
-    f"✅ {len(df)} registros carregados · "
+    f"✅ {len(arquivos_pdf)} PDF(s) · {len(df)} registros · "
     f"{df['Operador'].nunique()} operador(es) · "
     f"{df['Máquina'].nunique()} máquina(s)"
 )
@@ -1889,7 +1868,6 @@ with aba8:
     st.download_button(label="📥 Baixar CSV", data=csv, file_name="producao_polimpress.csv", mime="text/csv")
 
 
-# ── Aba Turnos: Alocação de Turnos ───────────────────────────────────────────
 # ── Aba 5: Evolução Operador ──────────────────────────────────────────────────
 with aba5:
     st.header("📈 Evolução Individual do Operador")
