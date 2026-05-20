@@ -279,23 +279,46 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
     return dados
 
 
-# ── Upload ───────────────────────────────────────────────────────────────────
-arquivos_pdf = st.file_uploader(
-    "Arraste e solte todos os PDFs de produção aqui de uma vez",
-    type=["pdf"],
-    accept_multiple_files=True,
-)
+# ── Upload por turno ─────────────────────────────────────────────────────────
+st.markdown("### 📂 Carregar relatórios por turno")
+st.caption("Cada PDF será marcado automaticamente com o turno correspondente.")
 
-if not arquivos_pdf:
+_col_t1, _col_t2, _col_t3 = st.columns(3)
+with _col_t1:
+    _pdfs_t1 = st.file_uploader("🔵 Turno 1", type=["pdf"],
+                                 accept_multiple_files=True, key="up_t1")
+with _col_t2:
+    _pdfs_t2 = st.file_uploader("🟠 Turno 2", type=["pdf"],
+                                 accept_multiple_files=True, key="up_t2")
+with _col_t3:
+    _pdfs_t3 = st.file_uploader("🟢 Turno 3", type=["pdf"],
+                                 accept_multiple_files=True, key="up_t3")
+
+_uploads = [
+    (_pdfs_t1, "Turno 1"),
+    (_pdfs_t2, "Turno 2"),
+    (_pdfs_t3, "Turno 3"),
+]
+
+if not any(pdfs for pdfs, _ in _uploads):
+    st.info("⬆️ Carregue pelo menos um PDF para iniciar a análise.")
     st.stop()
 
 todos_dados: list[dict] = []
 erros: list[str] = []
-for arquivo in arquivos_pdf:
-    try:
-        todos_dados.extend(extrair_dados_pdf(arquivo))
-    except Exception as e:
-        erros.append(f"{arquivo.name}: {e}")
+_contagem_turnos: dict[str, int] = {}
+
+for _lista_pdfs, _label_turno in _uploads:
+    for arquivo in (_lista_pdfs or []):
+        try:
+            _registros = extrair_dados_pdf(arquivo)
+            # Força o turno de TODOS os registros deste arquivo
+            for _r in _registros:
+                _r["Turno"] = _label_turno
+            todos_dados.extend(_registros)
+            _contagem_turnos[_label_turno] = _contagem_turnos.get(_label_turno, 0) + len(_registros)
+        except Exception as e:
+            erros.append(f"{arquivo.name}: {e}")
 
 for msg in erros:
     st.error(f"Erro ao processar — {msg}")
@@ -305,39 +328,22 @@ if not todos_dados:
     st.stop()
 
 df = pd.DataFrame(todos_dados)
-df["Data_dt"]          = pd.to_datetime(df["Data"], format="%d/%m/%Y")
+df["Data_dt"]           = pd.to_datetime(df["Data"], format="%d/%m/%Y")
 df["Periodo_Inicio_dt"] = pd.to_datetime(df["Periodo_Inicio"], format="%d/%m/%Y", errors="coerce")
 df["Periodo_Fim_dt"]    = pd.to_datetime(df["Periodo_Fim"],    format="%d/%m/%Y", errors="coerce")
 
-st.success(
-    f"✅ {len(arquivos_pdf)} relatório(s) · {len(df)} registros · "
-    f"{df['Operador'].nunique()} operador(es)"
+_resumo_turnos = "  ·  ".join(
+    f"**{t}**: {n} reg." for t, n in sorted(_contagem_turnos.items()) if n > 0
 )
+st.success(
+    f"✅ {len(df)} registros carregados · "
+    f"{df['Operador'].nunique()} operador(es) · "
+    f"{df['Máquina'].nunique()} máquina(s)"
+)
+if _resumo_turnos:
+    st.caption(_resumo_turnos)
 
-# ── Configuração de turnos (persiste em arquivo JSON) ─────────────────────────
-import json, os
-_TURNOS_CFG_PATH = os.path.join(os.path.dirname(__file__), "turnos_config.json")
-
-def _carregar_cfg_turnos() -> dict:
-    if os.path.exists(_TURNOS_CFG_PATH):
-        try:
-            with open(_TURNOS_CFG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def _salvar_cfg_turnos(cfg: dict):
-    with open(_TURNOS_CFG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-_turnos_cfg = _carregar_cfg_turnos()
-
-# Aplica overrides de turno ao dataframe
-for _op_cfg, _turno_cfg in _turnos_cfg.items():
-    df.loc[df["Operador"] == _op_cfg, "Turno"] = _turno_cfg
-
-aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8, aba_turnos = st.tabs([
+aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8 = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
@@ -347,7 +353,6 @@ aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8, aba_turnos = st.tabs([
     "📅 KG / Dia",
     "📊 Resumo Geral",
     "📋 Dados Brutos",
-    "⚙️ Alocação de Turnos",
 ])
 
 
@@ -1885,83 +1890,6 @@ with aba8:
 
 
 # ── Aba Turnos: Alocação de Turnos ───────────────────────────────────────────
-with aba_turnos:
-    st.header("⚙️ Alocação de Turnos por Operador")
-    st.caption(
-        "Configure o turno de cada operador. "
-        "O comparativo por máquina usará essa informação para comparar apenas operadores do **mesmo turno**."
-    )
-
-    _OPCOES_TURNO = ["Turno 1", "Turno 2", "Turno 3"]
-
-    # Monta tabela de operadores únicos com turno atual
-    _ops_lista = (
-        df.groupby("Operador")["Nome Curto"].first().reset_index()
-        .sort_values("Nome Curto")
-    )
-    _ops_lista["Turno Atual"] = _ops_lista["Operador"].map(
-        lambda op: df[df["Operador"] == op]["Turno"].iloc[0]
-    )
-    _ops_lista["Turno Configurado"] = _ops_lista["Operador"].map(
-        lambda op: _turnos_cfg.get(op, _ops_lista.loc[_ops_lista["Operador"] == op, "Turno Atual"].iloc[0])
-    )
-
-    st.info(
-        "📋 A coluna **Turno Atual** mostra o que foi lido do PDF. "
-        "A coluna **Turno Configurado** é o que será usado nas análises. "
-        "Altere abaixo e clique em **Salvar configuração**."
-    )
-
-    # Editor interativo
-    _cols_edit = st.columns([3, 2, 2])
-    _cols_edit[0].markdown("**Operador**")
-    _cols_edit[1].markdown("**Turno do PDF**")
-    _cols_edit[2].markdown("**Definir turno**")
-
-    _novos_turnos = {}
-    for _, _row in _ops_lista.iterrows():
-        _c1, _c2, _c3 = st.columns([3, 2, 2])
-        _c1.write(_row["Nome Curto"])
-        _c2.write(_row["Turno Atual"])
-        _turno_sel = _c3.selectbox(
-            label="turno",
-            options=_OPCOES_TURNO,
-            index=_OPCOES_TURNO.index(_row["Turno Configurado"])
-                  if _row["Turno Configurado"] in _OPCOES_TURNO else 0,
-            key=f"turno_{_row['Operador']}",
-            label_visibility="collapsed",
-        )
-        _novos_turnos[_row["Operador"]] = _turno_sel
-
-    st.divider()
-    _col_btn1, _col_btn2 = st.columns([1, 4])
-    if _col_btn1.button("💾 Salvar configuração", type="primary"):
-        _salvar_cfg_turnos(_novos_turnos)
-        st.success("✅ Configuração salva! Recarregue os PDFs para aplicar nas análises.")
-        st.rerun()
-
-    if _col_btn2.button("🔄 Resetar para padrão do PDF"):
-        _salvar_cfg_turnos({})
-        st.success("✅ Configuração resetada. Turnos voltaram ao padrão do PDF.")
-        st.rerun()
-
-    st.divider()
-    st.subheader("📊 Resumo por turno")
-    _resumo_turno = (
-        df.groupby("Turno")
-        .agg(
-            Operadores=("Operador", "nunique"),
-            Total_KG=("Peso (KG)", "sum"),
-            Apontamentos=("Cód Item", "count"),
-        )
-        .reset_index()
-        .sort_values("Turno")
-        .rename(columns={"Total_KG": "Total KG", "Apontamentos": "Apontamentos"})
-    )
-    _resumo_turno["% do Total"] = (_resumo_turno["Total KG"] / _resumo_turno["Total KG"].sum() * 100).round(1).astype(str) + "%"
-    st.dataframe(_resumo_turno, use_container_width=True, hide_index=True)
-
-
 # ── Aba 5: Evolução Operador ──────────────────────────────────────────────────
 with aba5:
     st.header("📈 Evolução Individual do Operador")
