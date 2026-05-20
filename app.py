@@ -1517,13 +1517,17 @@ with aba9:
             # ── Cards: operador com mais dias por turno (ou top-3 se turno filtrado) ─
             _med_cmp = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
             if _turno_cmp == "Todos os turnos":
-                # 1 card por turno → quem mais trabalhou nessa máquina no período
+                # 1 card por turno → quem mais trabalhou; ordenado por KG/h desc
                 _cards_idx = (
                     _r_cmp.sort_values("Dias na Máq.", ascending=False)
                     .drop_duplicates(subset="Turno")
                     .index
                 )
-                _cards_df  = _r_cmp.loc[_cards_idx].reset_index(drop=True)
+                _cards_df  = (
+                    _r_cmp.loc[_cards_idx]
+                    .sort_values("KG / Hora", ascending=False)
+                    .reset_index(drop=True)
+                )
                 _rest_df   = _r_cmp.drop(index=_cards_idx).reset_index(drop=True)
             else:
                 _cards_df = _r_cmp.head(3).reset_index(drop=True)
