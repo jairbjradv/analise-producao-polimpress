@@ -1073,7 +1073,8 @@ with aba9:
     )
 
     # ── Seletor de máquina ────────────────────────────────────────────────────
-    _maqs_disp = sorted(df["Máquina"].unique())
+    _TODAS = "🏭 Todas as máquinas"
+    _maqs_disp = [_TODAS] + sorted(df["Máquina"].unique())
     _maq_cmp = st.selectbox(
         "Selecione a máquina:",
         _maqs_disp,
@@ -1081,19 +1082,115 @@ with aba9:
         key="sel_maq_cmp",
     )
 
-    _df_maq_c = df[df["Máquina"] == _maq_cmp].copy()
+    # ── Visão consolidada — Todas as máquinas ────────────────────────────────
+    if _maq_cmp == _TODAS:
+        st.subheader("📊 Impacto consolidado — Todas as máquinas")
+        st.caption(f"Considera apenas operadores com ≥ {_MIN_DIAS} dias em cada máquina.")
 
-    # Dias por operador nessa máquina
-    _dias_op_maq = _df_maq_c.groupby("Operador")["Data"].nunique()
-    _ops_ok  = _dias_op_maq[_dias_op_maq >= _MIN_DIAS].index.tolist()
-    _ops_exc = _dias_op_maq[_dias_op_maq <  _MIN_DIAS].sort_values(ascending=False)
+        _criticos_total = 0
+        _gap_total = 0.0
+        _potencial_total = 0.0
+        _linhas_resumo = []
 
-    if _ops_exc.shape[0] > 0:
-        _exc_str = " · ".join(
-            f"{nome_curto(op)} ({d} dia{'s' if d>1 else ''})"
-            for op, d in _ops_exc.items()
-        )
-        st.info(f"⚠️ Excluídos por < {_MIN_DIAS} dias na máquina: {_exc_str}")
+        for _maq_iter in sorted(df["Máquina"].unique()):
+            _df_it = df[df["Máquina"] == _maq_iter]
+            _dias_it = _df_it.groupby("Operador")["Data"].nunique()
+            _ops_it = _dias_it[_dias_it >= _MIN_DIAS].index.tolist()
+            if not _ops_it:
+                continue
+            _df_it_v = _df_it[_df_it["Operador"].isin(_ops_it)]
+
+            # KG/hora por operador nessa máquina
+            _horas_it = {}
+            _dias_it_v = {}
+            for _op, _g in _df_it_v.groupby("Operador"):
+                _ts = _g["Turno"].iloc[0]; _fmt = _g["Formato"].iloc[0]
+                _pi = _g["Periodo_Inicio_dt"].iloc[0]; _pf = _g["Periodo_Fim_dt"].iloc[0]
+                if _fmt == "quinzenal" and pd.notna(_pi) and pd.notna(_pf):
+                    _horas_it[_op] = horas_operador_periodo(_ts, _pi, _pf)
+                    _dias_it_v[_op] = dias_trabalhados_no_periodo(_pi, _pf)
+                else:
+                    _du = _g["Data_dt"].dropna().drop_duplicates()
+                    _horas_it[_op] = _du.apply(lambda d: horas_turno(_ts, d)).sum()
+                    _dias_it_v[_op] = len(_du)
+
+            _r_it = (
+                _df_it_v.groupby(["Operador", "Nome Curto"])
+                .agg(Total_KG=("Peso (KG)", "sum"))
+                .reset_index()
+            )
+            _r_it["Horas"]     = _r_it["Operador"].map(_horas_it)
+            _r_it["Dias"]      = _r_it["Operador"].map(_dias_it_v)
+            _r_it["KG/Hora"]   = (_r_it["Total_KG"] / _r_it["Horas"]).round(2)
+            _r_it["KG/Dia"]    = (_r_it["Total_KG"] / _r_it["Dias"]).round(1)
+            _r_it = _r_it.sort_values("KG/Hora", ascending=False)
+
+            _melhor_h_it = _r_it["KG/Hora"].iloc[0]
+            _melhor_d_it = _r_it["KG/Dia"].iloc[0]
+            _melhor_nome = _r_it["Nome Curto"].iloc[0]
+
+            for _, _row in _r_it.iterrows():
+                _pct = (_row["KG/Hora"] - _melhor_h_it) / _melhor_h_it * 100 if _melhor_h_it > 0 else 0
+                _sem = "🟢" if _pct >= -10 else ("🟡" if _pct >= -25 else "🔴")
+                if _sem == "🔴":
+                    _criticos_total += 1
+                _gap_total += max(0, (_melhor_d_it - _row["KG/Dia"]) * 22)
+                _potencial_total += _melhor_d_it * 22
+
+                _linhas_resumo.append({
+                    "Máquina":      _maq_iter.split(" - ")[0],
+                    "Operador":     _row["Nome Curto"],
+                    "Semáforo":     _sem,
+                    "vs Melhor":    f"{_pct:+.1f}%",
+                    "KG / Hora":    _row["KG/Hora"],
+                    "KG / Dia":     _row["KG/Dia"],
+                    "KG / Mês*":    int(_row["KG/Dia"] * 22),
+                    "Gap KG/Mês*":  f"{int((_row['KG/Dia'] - _melhor_d_it)*22):+,}",
+                    "Melhor ref.":  _melhor_nome,
+                })
+
+        # Cards consolidados
+        _c1, _c2, _c3 = st.columns(3)
+        _c1.metric("🔴 Operadores críticos (total)", str(_criticos_total))
+        _c2.metric("📉 Gap total/mês (todas máquinas)", f"{_gap_total:,.0f} KG")
+        _c3.metric("🏭 Potencial se todos no melhor nível", f"{_potencial_total:,.0f} KG/mês")
+
+        st.divider()
+        st.subheader("📋 Resumo por máquina × operador")
+        st.caption("Somente operadores com ≥ 5 dias em cada máquina.")
+        if _linhas_resumo:
+            _df_resumo_all = pd.DataFrame(_linhas_resumo).sort_values(
+                ["Máquina", "KG / Hora"], ascending=[True, False]
+            )
+            # Linha de total
+            _tot_all = {
+                "Máquina": "―", "Operador": "📊 MÉDIA / TOTAL", "Semáforo": "―",
+                "vs Melhor": f"{(_df_resumo_all['KG / Hora'].mean() if len(_df_resumo_all)>0 else 0):+.1f}%",
+                "KG / Hora": round(_df_resumo_all["KG / Hora"].mean(), 2),
+                "KG / Dia":  round(_df_resumo_all["KG / Dia"].mean(), 1),
+                "KG / Mês*": int(_df_resumo_all["KG / Mês*"].mean()),
+                "Gap KG/Mês*": f"{int(_gap_total):+,}", "Melhor ref.": "―",
+            }
+            _df_resumo_all = pd.concat(
+                [_df_resumo_all, pd.DataFrame([_tot_all])], ignore_index=True
+            )
+            st.dataframe(_df_resumo_all, use_container_width=True, hide_index=True)
+
+    else:
+        # ── Visão por máquina específica ─────────────────────────────────────
+        _df_maq_c = df[df["Máquina"] == _maq_cmp].copy()
+
+        # Dias por operador nessa máquina
+        _dias_op_maq = _df_maq_c.groupby("Operador")["Data"].nunique()
+        _ops_ok  = _dias_op_maq[_dias_op_maq >= _MIN_DIAS].index.tolist()
+        _ops_exc = _dias_op_maq[_dias_op_maq <  _MIN_DIAS].sort_values(ascending=False)
+
+        if _ops_exc.shape[0] > 0:
+            _exc_str = " · ".join(
+                f"{nome_curto(op)} ({d} dia{'s' if d>1 else ''})"
+                for op, d in _ops_exc.items()
+            )
+            st.info(f"⚠️ Excluídos por < {_MIN_DIAS} dias na máquina: {_exc_str}")
 
     if not _ops_ok:
         st.warning(f"Nenhum operador com {_MIN_DIAS}+ dias nesta máquina no período carregado.")
