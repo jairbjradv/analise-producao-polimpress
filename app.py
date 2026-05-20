@@ -1246,9 +1246,10 @@ with aba9:
             _r_it["KG/Dia"]    = (_r_it["Total_KG"] / _r_it["Dias"]).round(1)
             _r_it = _r_it.sort_values("KG/Hora", ascending=False)
 
-            _melhor_h_it = _r_it["KG/Hora"].iloc[0]
-            _melhor_d_it = _r_it["KG/Dia"].iloc[0]
-            _melhor_nome = _r_it["Nome Curto"].iloc[0]
+            _melhor_h_it  = _r_it["KG/Hora"].iloc[0]
+            _melhor_d_it  = _r_it["KG/Dia"].iloc[0]
+            _melhor_nome  = _r_it["Nome Curto"].iloc[0]
+            _melhor_op_it = _r_it["Operador"].iloc[0]   # referência — gap sempre 0
 
             _gap_maq = 0.0
             _pot_maq = 0.0
@@ -1274,7 +1275,10 @@ with aba9:
                 _fmt_op  = _df_it_v[_df_it_v["Operador"] == _op_key]["Formato"].iloc[0]
                 _kg_real_op = _row["Total_KG"]
 
-                if _fmt_op == "diario":
+                # Melhor operador é a referência → gap sempre 0
+                if _op_key == _melhor_op_it:
+                    _gap_op = 0.0
+                elif _fmt_op == "diario":
                     # Agrupa KG produzido por dia nesta máquina
                     _daily = (
                         _df_it_v[_df_it_v["Operador"] == _op_key]
@@ -1310,7 +1314,8 @@ with aba9:
                     "KG / Hora":      _row["KG/Hora"],
                     "KG / Dia":       _row["KG/Dia"],
                     "KG no período":  int(_kg_real_op),
-                    "Gap no período": f"{int(-_gap_op):+,}",
+                    "Gap no período": f"{int(-_gap_op):+,}" if _gap_op > 0 else "—",
+                    "Projetado KG":   int(_kg_pot_op),
                     "Melhor ref.":    _melhor_nome,
                 })
 
@@ -1328,12 +1333,12 @@ with aba9:
             })
 
         # ── Cálculo unificado do ganho potencial ─────────────────────────────
-        # Usa o total real do relatório + % de ganho dos operadores comparáveis
-        # (mesma base para todos os cards — evita inconsistência)
+        # Projetado = total real + gap dos comparáveis (soma direta — sem multiplicador)
+        # Assim o card 🚀 bate exatamente com a soma da coluna "Projetado KG" da tabela
         _total_relatorio = _df_cmp_base["Peso (KG)"].sum()
-        _pct_gp          = ((_proj_periodo_total - _real_periodo_total) / _real_periodo_total * 100) if _real_periodo_total > 0 else 0
-        _projetado_total = _total_relatorio * (1 + _pct_gp / 100)
+        _projetado_total = _total_relatorio + _gap_total
         _ganho_real      = _projetado_total - _total_relatorio
+        _pct_gp          = (_ganho_real / _total_relatorio * 100) if _total_relatorio > 0 else 0
 
         # Cards consolidados — uma linha, quatro cards
         st.caption("📅 Gap calculado dia a dia, nas horas reais de cada operador em cada máquina.")
