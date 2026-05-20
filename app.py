@@ -1480,10 +1480,15 @@ with aba9:
                     _gap_v = max(0.0, _melhor_h * _horas_cmp.get(_op_g, 0) - _real_g)
                 _gap_por_op_cmp[_op_g] = round(_gap_v, 1)
 
+            # O melhor operador é a própria referência → gap deve ser 0
+            _best_op_key = _r_cmp["Operador"].iloc[0]
+            _gap_por_op_cmp[_best_op_key] = 0.0
+
             _r_cmp["Gap Período"]     = _r_cmp["Operador"].map(_gap_por_op_cmp).fillna(0)
             _r_cmp["Gap Período fmt"] = _r_cmp["Gap Período"].apply(
                 lambda v: f"-{v:,.0f}" if v > 0 else "—"
             )
+            _r_cmp["Projetado KG"]    = (_r_cmp["Total_KG"] + _r_cmp["Gap Período"]).round(1)
 
             # ── Cards: melhor operador por turno (ou top-3 se turno filtrado) ───────
             _med_cmp = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
@@ -1582,11 +1587,12 @@ with aba9:
             _df_exib_cmp = _r_cmp[[
                 "Semáforo", "Nome Curto", "Turno", "Dias na Máq.", "Horas",
                 "KG / Hora", "KG / Dia", "vs Melhor", "Gap Período fmt",
-                "Itens", "Total_KG", "Total_UN",
+                "Itens", "Total_KG", "Projetado KG", "Total_UN",
             ]].rename(columns={
-                "Nome Curto":     "Operador",
-                "Total_KG":       "Total KG",
-                "Total_UN":       "Total UN",
+                "Nome Curto":      "Operador",
+                "Total_KG":        "Total KG",
+                "Projetado KG":    "Projetado KG",
+                "Total_UN":        "Total UN",
                 "Gap Período fmt": "Gap no período",
             }).copy()
 
@@ -1607,6 +1613,7 @@ with aba9:
                 "Gap no período": "―",
                 "Itens":          "―",
                 "Total KG":       round(_kg_outros, 1),
+                "Projetado KG":   round(_kg_outros, 1),  # sem dados suficientes → mantém real
                 "Total UN":       _un_outros,
             }
 
@@ -1614,8 +1621,9 @@ with aba9:
             _gap_maq_periodo  = _r_cmp["Gap Período"].sum()
             _real_maq_periodo = _r_cmp["Total_KG"].sum()
             _total_maq_relatorio = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
-            _pct_gap_maq_per = (_gap_maq_periodo / _real_maq_periodo * 100) if _real_maq_periodo > 0 else 0
-            _projetado_maq   = _total_maq_relatorio * (1 + _pct_gap_maq_per / 100)
+            # Projetado = soma das colunas Projetado KG (comparáveis) + kg outros (sem dados)
+            _projetado_maq   = round(_r_cmp["Projetado KG"].sum() + _kg_outros, 1)
+            _pct_gap_maq_per = ((_projetado_maq - _total_maq_relatorio) / _total_maq_relatorio * 100) if _total_maq_relatorio > 0 else 0
             _ganho_real_maq  = _projetado_maq - _total_maq_relatorio
 
             _row_total = {
@@ -1630,6 +1638,7 @@ with aba9:
                 "Gap no período": f"-{_gap_maq_periodo:,.0f}",   # ← bate com card "KG deixados"
                 "Itens":          "―",
                 "Total KG":       round(_total_maq_relatorio, 1), # ← bate com card "Total produzido"
+                "Projetado KG":   _projetado_maq,                 # ← bate com card "Projetado"
                 "Total UN":       int(_df_maq_c["Peso (KG)"].count()),  # total apontamentos
             }
 
