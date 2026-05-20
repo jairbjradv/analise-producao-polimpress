@@ -1277,50 +1277,34 @@ with aba9:
         _projetado_total = _total_relatorio * (1 + _pct_gp / 100)
         _ganho_real      = _projetado_total - _total_relatorio
 
-        # Cards consolidados — linha 1
+        # Cards consolidados — uma linha, quatro cards
+        st.caption("📅 Gap calculado dia a dia, nas horas reais de cada operador em cada máquina.")
         _pct_atencao = ((_criticos_total + _amarelos_total) / _total_ops_analisados * 100) if _total_ops_analisados > 0 else 0
         _pct_gap     = (_gap_total / _producao_real_total * 100) if _producao_real_total > 0 else 0
 
-        _c1, _c2, _c3 = st.columns(3)
+        _c1, _c2, _c3, _c4 = st.columns(4)
         _c1.metric(
-            "⚠️ Operadores em atenção (total)",
+            "⚠️ Operadores em atenção",
             f"🔴 {_criticos_total}  ·  🟡 {_amarelos_total}",
             delta=f"{_pct_atencao:.0f}% dos operadores analisados",
             delta_color="off",
         )
         _c2.metric(
-            "📉 Gap no período (todas máquinas)",
-            f"{_gap_total:,.0f} KG",
-            delta=f"+{_pct_gap:.1f}% deixado na mesa — nas mesmas horas disponíveis",
-            delta_color="normal",
-        )
-        _c3.metric(
-            "🚀 Projetado se todos no nível do melhor",
-            f"{_projetado_total:,.0f} KG",
-            delta=f"+{_ganho_real:,.0f} KG a mais no período (+{_pct_gp:.1f}%)",
-            delta_color="normal",
-        )
-
-        # Cards consolidados — linha 2 (detalhamento do período)
-        st.markdown("---")
-        st.caption("📅 Projeção sobre o total real do relatório — se todos os operadores comparáveis atingissem o nível do melhor")
-        _p1, _p2, _p3 = st.columns(3)
-        _p1.metric(
             "📦 Total produzido no período",
             f"{_total_relatorio:,.0f} KG",
             delta="Total real do relatório",
             delta_color="off",
         )
-        _p2.metric(
-            "🚀 Projetado se todos no nível do melhor",
-            f"{_projetado_total:,.0f} KG",
-            delta=f"+{_ganho_real:,.0f} KG a mais (+{_pct_gp:.1f}%)",
+        _c3.metric(
+            "📉 KG deixados na mesa",
+            f"{_gap_total:,.0f} KG",
+            delta=f"+{_pct_gap:.1f}% — nos dias trabalhados, se igual ao melhor",
             delta_color="normal",
         )
-        _p3.metric(
-            "📈 Ganho real potencial no período",
-            f"+{_ganho_real:,.0f} KG",
-            delta=f"+{_pct_gp:.1f}% sobre a produção total",
+        _c4.metric(
+            "🚀 Projetado se todos no nível do melhor",
+            f"{_projetado_total:,.0f} KG",
+            delta=f"+{_ganho_real:,.0f} KG (+{_pct_gp:.1f}%)",
             delta_color="normal",
         )
 
@@ -1540,24 +1524,38 @@ with aba9:
             )
             st.dataframe(_df_exib_final, use_container_width=True, hide_index=True)
 
-            # ── Impacto financeiro do gap ─────────────────────────────────────────
+            # ── Impacto do gap — dia a dia nos dias reais trabalhados ─────────────
             st.divider()
             st.subheader("💰 Impacto do gap de produtividade")
-            st.caption("Quanto cada operador deixou de produzir por mês em relação ao melhor — referência para conversas de desempenho.")
+            st.caption(
+                "Nos dias em que cada operador trabalhou nesta máquina: "
+                "quanto a mais teria produzido se fosse igual ao melhor (KG/hora)?"
+            )
 
+            # Gap dia a dia: para cada operador, cada dia nesta máquina
+            _gap_maq_periodo  = 0.0
+            _real_maq_periodo = 0.0
+            for _op_g, _g in _df_validos.groupby("Operador"):
+                _ts_g  = _g["Turno"].iloc[0]
+                _fmt_g = _g["Formato"].iloc[0]
+                _real_g = _g["Peso (KG)"].sum()
+                _real_maq_periodo += _real_g
+                if _fmt_g == "diario":
+                    for _dt, _kg_d in _g.groupby("Data_dt")["Peso (KG)"].sum().items():
+                        _h_d = horas_turno(_ts_g, _dt)
+                        _gap_maq_periodo += max(0.0, _melhor_h * _h_d - _kg_d)
+                else:
+                    _gap_maq_periodo += max(0.0, _melhor_h * _horas_cmp.get(_op_g, 0) - _real_g)
+
+            _total_maq_relatorio = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
+            _pct_gap_maq_per = (_gap_maq_periodo / _real_maq_periodo * 100) if _real_maq_periodo > 0 else 0
+            _projetado_maq   = _total_maq_relatorio * (1 + _pct_gap_maq_per / 100)
+            _ganho_real_maq  = _projetado_maq - _total_maq_relatorio
             _n_criticos_maq  = len(_r_cmp[_r_cmp["Semáforo"] == "🔴"])
             _n_amarelos_maq  = len(_r_cmp[_r_cmp["Semáforo"] == "🟡"])
-            _gap_total_mes = sum(
-                max(0, (_melhor_d - row["KG / Dia"]) * 22)
-                for _, row in _r_cmp.iterrows()
-            )
-            _real_mes_maq    = _r_cmp["KG / Dia"].sum() * 22
-            _pot_mes_maq     = _melhor_d * 22 * len(_r_cmp)
             _pct_atencao_maq = ((_n_criticos_maq + _n_amarelos_maq) / len(_r_cmp) * 100) if len(_r_cmp) > 0 else 0
-            _pct_gap_maq     = (_gap_total_mes / _real_mes_maq * 100) if _real_mes_maq > 0 else 0
-            _pct_ganho_maq   = ((_pot_mes_maq - _real_mes_maq) / _real_mes_maq * 100) if _real_mes_maq > 0 else 0
 
-            _c1, _c2, _c3 = st.columns(3)
+            _c1, _c2, _c3, _c4 = st.columns(4)
             _c1.metric(
                 "⚠️ Operadores em atenção",
                 f"🔴 {_n_criticos_maq}  ·  🟡 {_n_amarelos_maq}",
@@ -1565,51 +1563,21 @@ with aba9:
                 delta_color="off",
             )
             _c2.metric(
-                "📉 Gap total/mês nesta máquina",
-                f"{_gap_total_mes:,.0f} KG",
-                delta=f"+{_pct_gap_maq:.1f}% a mais se nivelados ao melhor",
-                delta_color="normal",
-            )
-            _c3.metric(
-                "🏭 Potencial se todos no melhor nível",
-                f"{_pot_mes_maq:,.0f} KG/mês",
-                delta=f"Atual: {_real_mes_maq:,.0f} KG/mês  (+{_pct_ganho_maq:.1f}%)",
-                delta_color="normal",
-            )
-
-            # ── Período real vs projetado (sobre total real da máquina) ─────────
-            # % de ganho calculado sobre operadores comparáveis
-            _real_per_maq = _r_cmp["Total_KG"].sum()
-            _proj_per_maq = sum(
-                _melhor_d * _dias_cmp.get(op, 0)
-                for op in _r_cmp["Operador"]
-            )
-            _pct_ganho_per = (_proj_per_maq - _real_per_maq) / _real_per_maq * 100 if _real_per_maq > 0 else 0
-
-            # Total real da máquina = toda a produção dela no período (sem filtro de dias)
-            _total_maq_relatorio = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
-            _projetado_maq       = _total_maq_relatorio * (1 + _pct_ganho_per / 100)
-            _ganho_real_maq      = _projetado_maq - _total_maq_relatorio
-
-            st.markdown("---")
-            st.caption("📅 Projeção sobre o total real da máquina no período — se todos atingissem o nível do melhor")
-            _pp1, _pp2, _pp3 = st.columns(3)
-            _pp1.metric(
                 "📦 Total produzido no período",
                 f"{_total_maq_relatorio:,.0f} KG",
                 delta="Total real da máquina",
                 delta_color="off",
             )
-            _pp2.metric(
-                "🚀 Projetado se todos no nível do melhor",
-                f"{_projetado_maq:,.0f} KG",
-                delta=f"+{_ganho_real_maq:,.0f} KG a mais (+{_pct_ganho_per:.1f}%)",
+            _c3.metric(
+                "📉 KG deixados na mesa",
+                f"{_gap_maq_periodo:,.0f} KG",
+                delta=f"+{_pct_gap_maq_per:.1f}% — nos dias trabalhados, se igual ao melhor",
                 delta_color="normal",
             )
-            _pp3.metric(
-                "📈 Ganho real potencial no período",
-                f"+{_ganho_real_maq:,.0f} KG",
-                delta=f"+{_pct_ganho_per:.1f}% sobre a produção total da máquina",
+            _c4.metric(
+                "🚀 Projetado se todos no nível do melhor",
+                f"{_projetado_maq:,.0f} KG",
+                delta=f"+{_ganho_real_maq:,.0f} KG (+{_pct_gap_maq_per:.1f}%)",
                 delta_color="normal",
             )
 
