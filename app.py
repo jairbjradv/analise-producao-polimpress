@@ -107,13 +107,15 @@ def dias_trabalhados_no_periodo(inicio_dt, fim_dt) -> int:
 
 
 def nome_curto(nome_completo: str) -> str:
-    """'LUIS FELIPE DA SILVA ABATI' → 'Luis A.'"""
-    partes = [p for p in nome_completo.strip().split() if len(p) > 1]
+    """'LUIS FELIPE DA SILVA ABATI' → 'Luis F. S. A.'"""
+    _ignorar = {"da", "de", "do", "das", "dos", "e"}
+    partes = [p for p in nome_completo.strip().split()
+              if p.lower() not in _ignorar and len(p) > 1]
     if not partes:
         return nome_completo
     primeiro = partes[0].capitalize()
-    inicial_ultimo = partes[-1][0].upper()
-    return f"{primeiro} {inicial_ultimo}."
+    iniciais = " ".join(f"{p[0].upper()}." for p in partes[1:])
+    return f"{primeiro} {iniciais}".strip() if iniciais else primeiro
 
 
 def _parse_br_float(s: str) -> float:
