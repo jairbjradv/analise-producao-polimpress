@@ -1293,6 +1293,11 @@ with aba9:
                     _horas_op = _horas_it.get(_op_key, 0)
                     _gap_op   = max(0.0, _melhor_h_it * _horas_op - _kg_real_op)
 
+                # Teto: projetado não pode ultrapassar best_h × horas reais do operador
+                _horas_op_it = _horas_it.get(_op_key, 0)
+                _gap_max_it  = max(0.0, _melhor_h_it * _horas_op_it - _kg_real_op)
+                _gap_op      = min(_gap_op, _gap_max_it)
+
                 _kg_pot_op = _kg_real_op + _gap_op  # o que poderia ter produzido
 
                 _gap_total           += _gap_op
@@ -1478,11 +1483,16 @@ with aba9:
                 _fmt_g = _g_v["Formato"].iloc[0]
                 _real_g = _g_v["Peso (KG)"].sum()
                 _gap_v = 0.0
+                _horas_op_g = _horas_cmp.get(_op_g, 0)
                 if _fmt_g == "diario":
                     for _dt, _kg_d in _g_v.groupby("Data_dt")["Peso (KG)"].sum().items():
                         _gap_v += max(0.0, _melhor_h * horas_turno(_ts_g, _dt) - _kg_d)
                 else:
-                    _gap_v = max(0.0, _melhor_h * _horas_cmp.get(_op_g, 0) - _real_g)
+                    _gap_v = max(0.0, _melhor_h * _horas_op_g - _real_g)
+                # Teto: projetado não pode ultrapassar best_h × horas reais do operador
+                # (evita inflação em dias onde o operador superou a média do melhor)
+                _gap_max = max(0.0, _melhor_h * _horas_op_g - _real_g)
+                _gap_v   = min(_gap_v, _gap_max)
                 _gap_por_op_cmp[_op_g] = round(_gap_v, 1)
 
             # O melhor operador é a própria referência → gap deve ser 0
