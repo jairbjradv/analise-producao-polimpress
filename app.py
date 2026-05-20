@@ -302,11 +302,12 @@ st.success(
     f"{df['Operador'].nunique()} operador(es)"
 )
 
-aba1, aba2, aba3, aba4, aba5, aba6, aba7, aba8 = st.tabs([
+aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8 = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
     "🏅 Top Produção",
+    "🎯 Comparativo por Máquina",
     "📈 Evolução Operador",
     "📅 KG / Dia",
     "📊 Resumo Geral",
@@ -1061,6 +1062,206 @@ with aba4:
             bar_chart(maq_un["Máquina Curta"], maq_un["Total_UN"], fmt=",.0f", cor="#5CB85C", max_show=5),
             use_container_width=True,
         )
+# ── Aba 9: Comparativo por Máquina ───────────────────────────────────────────
+with aba9:
+    _MIN_DIAS = 5   # mínimo de dias para entrar na comparação
+
+    st.header("🎯 Comparativo Justo por Máquina")
+    st.caption(
+        f"Compara operadores que trabalharam na mesma máquina por pelo menos **{_MIN_DIAS} dias** "
+        "no período carregado. Base justa: mesmo equipamento, mesmo mix de material ao longo do tempo."
+    )
+
+    # ── Seletor de máquina ────────────────────────────────────────────────────
+    _maqs_disp = sorted(df["Máquina"].unique())
+    _maq_cmp = st.selectbox(
+        "Selecione a máquina:",
+        _maqs_disp,
+        format_func=lambda m: m[:80],
+        key="sel_maq_cmp",
+    )
+
+    _df_maq_c = df[df["Máquina"] == _maq_cmp].copy()
+
+    # Dias por operador nessa máquina
+    _dias_op_maq = _df_maq_c.groupby("Operador")["Data"].nunique()
+    _ops_ok  = _dias_op_maq[_dias_op_maq >= _MIN_DIAS].index.tolist()
+    _ops_exc = _dias_op_maq[_dias_op_maq <  _MIN_DIAS].sort_values(ascending=False)
+
+    if _ops_exc.shape[0] > 0:
+        _exc_str = " · ".join(
+            f"{nome_curto(op)} ({d} dia{'s' if d>1 else ''})"
+            for op, d in _ops_exc.items()
+        )
+        st.info(f"⚠️ Excluídos por < {_MIN_DIAS} dias na máquina: {_exc_str}")
+
+    if not _ops_ok:
+        st.warning(f"Nenhum operador com {_MIN_DIAS}+ dias nesta máquina no período carregado.")
+    else:
+        _df_validos = _df_maq_c[_df_maq_c["Operador"].isin(_ops_ok)].copy()
+
+        # ── Cálculo de horas reais por operador (respeita turno e sábado) ────
+        _horas_cmp = {}
+        _dias_cmp  = {}
+        for _op, _g in _df_validos.groupby("Operador"):
+            _ts   = _g["Turno"].iloc[0]
+            _fmt  = _g["Formato"].iloc[0]
+            _pini = _g["Periodo_Inicio_dt"].iloc[0]
+            _pfim = _g["Periodo_Fim_dt"].iloc[0]
+            if _fmt == "quinzenal" and pd.notna(_pini) and pd.notna(_pfim):
+                _horas_cmp[_op] = horas_operador_periodo(_ts, _pini, _pfim)
+                _dias_cmp[_op]  = dias_trabalhados_no_periodo(_pini, _pfim)
+            else:
+                _du = _g["Data_dt"].dropna().drop_duplicates()
+                _horas_cmp[_op] = _du.apply(lambda d: horas_turno(_ts, d)).sum()
+                _dias_cmp[_op]  = len(_du)
+
+        # ── Resumo por operador ───────────────────────────────────────────────
+        _r_cmp = (
+            _df_validos.groupby(["Operador", "Nome Curto", "Turno"])
+            .agg(
+                Total_KG=("Peso (KG)", "sum"),
+                Total_UN=("Qtd (UN)", "sum"),
+                Itens=("Cód Item", "nunique"),
+                Apontamentos=("Cód Item", "count"),
+            )
+            .reset_index()
+        )
+        _r_cmp["Dias na Máq."] = _r_cmp["Operador"].map(_dias_cmp)
+        _r_cmp["Horas"]        = _r_cmp["Operador"].map(_horas_cmp).round(1)
+        _r_cmp["KG / Hora"]    = (_r_cmp["Total_KG"] / _r_cmp["Horas"]).round(2)
+        _r_cmp["KG / Dia"]     = (_r_cmp["Total_KG"] / _r_cmp["Dias na Máq."]).round(1)
+        _r_cmp["KG / Mês*"]   = (_r_cmp["KG / Dia"] * 22).round(0).astype(int)
+        _r_cmp = _r_cmp.sort_values("KG / Hora", ascending=False).reset_index(drop=True)
+
+        # ── Semáforo vs. melhor ───────────────────────────────────────────────
+        _melhor_h = _r_cmp["KG / Hora"].iloc[0]
+        _melhor_d = _r_cmp["KG / Dia"].iloc[0]
+
+        def _semaforo(val, ref):
+            pct = (val - ref) / ref * 100 if ref > 0 else 0
+            if pct >= -10:  return "🟢", pct
+            if pct >= -25:  return "🟡", pct
+            return "🔴", pct
+
+        _r_cmp["Semáforo"]    = _r_cmp["KG / Hora"].apply(lambda v: _semaforo(v, _melhor_h)[0])
+        _r_cmp["vs Melhor"]   = _r_cmp["KG / Hora"].apply(lambda v: f"{_semaforo(v, _melhor_h)[1]:+.1f}%")
+        _r_cmp["Gap KG/Dia"]  = (_r_cmp["KG / Dia"] - _melhor_d).round(1).apply(lambda v: f"{v:+.1f}")
+        _r_cmp["Gap KG/Mês"]  = ((_r_cmp["KG / Dia"] - _melhor_d) * 22).round(0).astype(int).apply(lambda v: f"{v:+,}")
+
+        # ── Cards top 3 ───────────────────────────────────────────────────────
+        _med_cmp = ["🥇", "🥈", "🥉"]
+        _n_cmp = min(len(_r_cmp), 3)
+        _cols_cmp = st.columns(_n_cmp)
+        for _i in range(_n_cmp):
+            _row = _r_cmp.iloc[_i]
+            _sem, _pct = _semaforo(_row["KG / Hora"], _melhor_h)
+            with _cols_cmp[_i]:
+                st.metric(
+                    label=f"{_med_cmp[_i]} {_row['Nome Curto']} {_sem}",
+                    value=f"{_row['KG / Hora']:.2f} KG/h",
+                    delta=f"{_row['vs Melhor']} vs melhor · {_row['Dias na Máq.']} dias",
+                )
+        if len(_r_cmp) > 3:
+            with st.expander(f"Ver todos os {len(_r_cmp)} operadores"):
+                _rest_cmp = _r_cmp.iloc[3:]
+                _cols_r = st.columns(min(len(_rest_cmp), 4))
+                for _j, (_, _row) in enumerate(_rest_cmp.iterrows()):
+                    _sem, _ = _semaforo(_row["KG / Hora"], _melhor_h)
+                    with _cols_r[_j % 4]:
+                        st.metric(
+                            label=f"{_row['Nome Curto']} {_sem}",
+                            value=f"{_row['KG / Hora']:.2f} KG/h",
+                            delta=f"{_row['vs Melhor']} · {_row['Dias na Máq.']} dias",
+                        )
+
+        quebra_pagina()
+
+        # ── Gráficos lado a lado ──────────────────────────────────────────────
+        _cores_sem = [
+            "#2ECC71" if _semaforo(v, _melhor_h)[0] == "🟢"
+            else ("#F39C12" if _semaforo(v, _melhor_h)[0] == "🟡" else "#E74C3C")
+            for v in _r_cmp["KG / Hora"]
+        ]
+
+        _col_g1, _col_g2, _col_g3 = st.columns(3)
+        with _col_g1:
+            st.markdown("**KG / Hora**")
+            _fig1 = go.Figure(go.Bar(
+                x=_r_cmp["Nome Curto"], y=_r_cmp["KG / Hora"],
+                text=_r_cmp["KG / Hora"].apply(lambda v: f"{v:.2f}"),
+                textposition="inside", textfont=dict(size=13, color="white"),
+                marker_color=_cores_sem,
+            ))
+            _fig1.update_layout(
+                height=300, bargap=0.4, margin=dict(t=10, b=10, l=10, r=10),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+            )
+            st.plotly_chart(_fig1, use_container_width=True)
+
+        with _col_g2:
+            st.markdown("**KG / Dia**")
+            _fig2 = go.Figure(go.Bar(
+                x=_r_cmp["Nome Curto"], y=_r_cmp["KG / Dia"],
+                text=_r_cmp["KG / Dia"].apply(lambda v: f"{v:.1f}"),
+                textposition="inside", textfont=dict(size=13, color="white"),
+                marker_color=_cores_sem,
+            ))
+            _fig2.update_layout(
+                height=300, bargap=0.4, margin=dict(t=10, b=10, l=10, r=10),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+            )
+            st.plotly_chart(_fig2, use_container_width=True)
+
+        with _col_g3:
+            st.markdown("**KG / Mês projetado** *(KG/dia × 22)*")
+            _fig3 = go.Figure(go.Bar(
+                x=_r_cmp["Nome Curto"], y=_r_cmp["KG / Mês*"],
+                text=_r_cmp["KG / Mês*"].apply(lambda v: f"{v:,.0f}"),
+                textposition="inside", textfont=dict(size=13, color="white"),
+                marker_color=_cores_sem,
+            ))
+            _fig3.update_layout(
+                height=300, bargap=0.4, margin=dict(t=10, b=10, l=10, r=10),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+            )
+            st.plotly_chart(_fig3, use_container_width=True)
+
+        quebra_pagina()
+
+        # ── Tabela completa ───────────────────────────────────────────────────
+        st.subheader("📋 Tabela detalhada")
+        st.caption("🟢 até 10% abaixo do melhor  ·  🟡 entre 10% e 25%  ·  🔴 mais de 25% abaixo")
+        _df_exib_cmp = _r_cmp[[
+            "Semáforo", "Nome Curto", "Turno", "Dias na Máq.", "Horas",
+            "KG / Hora", "KG / Dia", "KG / Mês*",
+            "vs Melhor", "Gap KG/Dia", "Gap KG/Mês", "Itens", "Total_KG", "Total_UN",
+        ]].rename(columns={
+            "Nome Curto": "Operador",
+            "Total_KG": "Total KG",
+            "Total_UN": "Total UN",
+            "Gap KG/Mês": "Gap KG/Mês*",
+        })
+        st.dataframe(_df_exib_cmp, use_container_width=True, hide_index=True)
+
+        # ── Impacto financeiro do gap ─────────────────────────────────────────
+        st.divider()
+        st.subheader("💰 Impacto do gap de produtividade")
+        st.caption("Quanto cada operador deixou de produzir por mês em relação ao melhor — referência para conversas de desempenho.")
+        _n_operadores_baixo = len(_r_cmp[_r_cmp["Semáforo"] == "🔴"])
+        _gap_total_mes = sum(
+            max(0, (_melhor_d - row["KG / Dia"]) * 22)
+            for _, row in _r_cmp.iterrows()
+        )
+        _c1, _c2, _c3 = st.columns(3)
+        _c1.metric("🔴 Operadores críticos", f"{_n_operadores_baixo}")
+        _c2.metric("📉 Gap total/mês (vs. melhor)", f"{_gap_total_mes:,.0f} KG")
+        _c3.metric("🏭 Potencial se todos no melhor nível", f"{_melhor_d * 22 * len(_r_cmp):,.0f} KG/mês")
+
+
 # ── Aba 6: KG / Dia ──────────────────────────────────────────────────────────
 with aba6:
     st.header("📅 Ranking por KG / Dia")
