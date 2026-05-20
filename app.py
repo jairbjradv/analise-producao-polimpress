@@ -1244,8 +1244,29 @@ with aba9:
             "Total_KG": "Total KG",
             "Total_UN": "Total UN",
             "Gap KG/Mês": "Gap KG/Mês*",
-        })
-        st.dataframe(_df_exib_cmp, use_container_width=True, hide_index=True)
+        }).copy()
+
+        # ── Linha de total / média ────────────────────────────────────────────
+        _tot = {
+            "Semáforo":     "―",
+            "Operador":     "📊 MÉDIA / TOTAL",
+            "Turno":        "",
+            "Dias na Máq.": f"{_r_cmp['Dias na Máq.'].mean():.1f} méd",
+            "Horas":        round(_r_cmp["Horas"].mean(), 1),
+            "KG / Hora":    round(_r_cmp["KG / Hora"].mean(), 2),        # média
+            "KG / Dia":     round(_r_cmp["KG / Dia"].mean(), 1),         # média
+            "KG / Mês*":    int(_r_cmp["KG / Mês*"].mean()),             # média
+            "vs Melhor":    f"{((_r_cmp['KG / Hora'].mean()-_melhor_h)/_melhor_h*100):+.1f}%",
+            "Gap KG/Dia":   f"{(_r_cmp['KG / Dia'].mean()-_melhor_d):+.1f}",
+            "Gap KG/Mês*":  f"{int((_r_cmp['KG / Dia'].mean()-_melhor_d)*22):+,}",
+            "Itens":        "―",
+            "Total KG":     round(_r_cmp["Total_KG"].sum(), 1),          # soma
+            "Total UN":     int(_r_cmp["Total_UN"].sum()),               # soma
+        }
+        _df_exib_final = pd.concat(
+            [_df_exib_cmp, pd.DataFrame([_tot])], ignore_index=True
+        )
+        st.dataframe(_df_exib_final, use_container_width=True, hide_index=True)
 
         # ── Impacto financeiro do gap ─────────────────────────────────────────
         st.divider()
