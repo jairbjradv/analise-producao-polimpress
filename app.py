@@ -3,6 +3,8 @@ import pdfplumber
 import pandas as pd
 import re
 import plotly.graph_objects as go
+from datetime import date, timedelta
+import calendar as _calendar
 
 st.set_page_config(page_title="Análise de Produção - Polimpress", layout="wide")
 
@@ -116,6 +118,62 @@ def nome_curto(nome_completo: str) -> str:
 
 def _parse_br_float(s: str) -> float:
     return float(s.replace(".", "").replace(",", "."))
+
+
+# ── Feriados e projeção mensal ────────────────────────────────────────────────
+def _pascoa(ano: int) -> date:
+    """Algoritmo de Butcher — data da Páscoa para qualquer ano."""
+    a = ano % 19; b = ano // 100; c = ano % 100
+    d = b // 4;  e = b % 4;      f = (b + 8) // 25
+    g = (b - f + 1) // 3;        h = (19*a + b - d - g + 15) % 30
+    i = c // 4;  k = c % 4;      l = (32 + 2*e + 2*i - h - k) % 7
+    m = (a + 11*h + 22*l) // 451
+    mes = (h + l - 7*m + 114) // 31
+    dia = ((h + l - 7*m + 114) % 31) + 1
+    return date(ano, mes, dia)
+
+
+def _feriados_dracena(ano: int) -> set[date]:
+    """
+    Feriados nacionais + Estado de SP + município de Dracena/SP.
+    Inclui feriados móveis calculados pela data da Páscoa.
+    """
+    p = _pascoa(ano)
+    return {
+        # ── Nacionais fixos ───────────────────────────────────────────────────
+        date(ano,  1,  1),   # Ano Novo
+        date(ano,  4, 21),   # Tiradentes
+        date(ano,  5,  1),   # Dia do Trabalho
+        date(ano,  9,  7),   # Independência
+        date(ano, 10, 12),   # N. Sra. Aparecida
+        date(ano, 11,  2),   # Finados
+        date(ano, 11, 15),   # Proclamação da República
+        date(ano, 11, 20),   # Consciência Negra
+        date(ano, 12, 25),   # Natal
+        # ── Nacionais móveis (Páscoa) ─────────────────────────────────────────
+        p - timedelta(days=48),   # Segunda-feira de Carnaval
+        p - timedelta(days=47),   # Terça-feira de Carnaval
+        p - timedelta(days=2),    # Sexta-feira Santa
+        p + timedelta(days=60),   # Corpus Christi
+        # ── Estado de São Paulo ───────────────────────────────────────────────
+        date(ano,  7,  9),   # Revolução Constitucionalista
+        # ── Município de Dracena/SP ───────────────────────────────────────────
+        date(ano,  3, 14),   # Fundação de Dracena (14/03/1949)
+    }
+
+
+def _horas_projetadas_mes(turno_str: str, ano: int, mes: int,
+                           feriados: set[date]) -> float:
+    """
+    Soma as horas produtivas de um turno em todos os dias úteis do mês
+    (Segunda a Sábado, excluindo feriados).
+    """
+    total = 0.0
+    for dia in range(1, _calendar.monthrange(ano, mes)[1] + 1):
+        dt = date(ano, mes, dia)
+        if dt.weekday() < 6 and dt not in feriados:   # seg–sáb, não feriado
+            total += horas_turno(turno_str, pd.Timestamp(dt))
+    return total
 
 
 def bar_chart(labels, values, fmt=".1f", cor="#4C9BE8", height=340, max_show=None):
@@ -1380,7 +1438,19 @@ with aba9:
             _r_cmp["Horas"]        = _r_cmp["Operador"].map(_horas_cmp).round(1)
             _r_cmp["KG / Hora"]    = (_r_cmp["Total_KG"] / _r_cmp["Horas"]).round(2)
             _r_cmp["KG / Dia"]     = (_r_cmp["Total_KG"] / _r_cmp["Dias na Máq."]).round(1)
-            _r_cmp["KG / Mês*"]   = (_r_cmp["KG / Dia"] * 22).round(0).astype(int)
+
+            # Projeção para o próximo mês usando dias úteis reais (sem dom./feriados)
+            _dt_ref      = _df_maq_c["Data_dt"].max()
+            _prox        = (_dt_ref + pd.DateOffset(months=1)).replace(day=1)
+            _proj_ano    = int(_prox.year);  _proj_mes = int(_prox.month)
+            _ferias_proj = _feriados_dracena(_proj_ano)
+            _proj_label  = _prox.strftime("%b/%Y")
+
+            def _kg_proj(row):
+                h = _horas_projetadas_mes(row["Turno"], _proj_ano, _proj_mes, _ferias_proj)
+                return int(round(row["KG / Hora"] * h))
+
+            _r_cmp["KG Proj."]    = _r_cmp.apply(_kg_proj, axis=1)
             _r_cmp = _r_cmp.sort_values("KG / Hora", ascending=False).reset_index(drop=True)
 
             # ── Semáforo vs. melhor ───────────────────────────────────────────────
@@ -1489,10 +1559,10 @@ with aba9:
                 st.plotly_chart(_fig2, use_container_width=True)
 
             with _col_g3:
-                st.markdown("**KG total no período**")
+                st.markdown(f"**KG projetado — {_proj_label}** *(dias úteis sem dom./feriados)*")
                 _fig3 = go.Figure(go.Bar(
-                    x=_r_cmp["Nome Curto"], y=_r_cmp["Total_KG"],
-                    text=_r_cmp["Total_KG"].apply(lambda v: f"{v:,.0f}"),
+                    x=_r_cmp["Nome Curto"], y=_r_cmp["KG Proj."],
+                    text=_r_cmp["KG Proj."].apply(lambda v: f"{v:,.0f}"),
                     textposition="inside", textfont=dict(size=13, color="white"),
                     marker_color=_cores_sem,
                 ))
