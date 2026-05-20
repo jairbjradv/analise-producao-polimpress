@@ -1064,12 +1064,14 @@ with aba4:
         )
 # ── Aba 9: Comparativo por Máquina ───────────────────────────────────────────
 with aba9:
-    _MIN_DIAS = 5   # mínimo de dias para entrar na comparação
+    _TOTAL_DIAS = int(df["Data_dt"].dropna().nunique())
+    _MIN_DIAS   = max(1, round(_TOTAL_DIAS * 0.70))  # 70% dos dias do período
 
     st.header("🎯 Comparativo Justo por Máquina")
     st.caption(
         f"Compara operadores que trabalharam na mesma máquina por pelo menos **{_MIN_DIAS} dias** "
-        "no período carregado. Base justa: mesmo equipamento, mesmo mix de material ao longo do tempo."
+        f"(**70% dos {_TOTAL_DIAS} dias do período**). "
+        "Base justa: mesmo equipamento, mesmo mix de material ao longo do tempo."
     )
 
     # ── Seletor de máquina ────────────────────────────────────────────────────
