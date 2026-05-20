@@ -1221,64 +1221,6 @@ with aba9:
             )
             st.dataframe(_df_resumo_all, use_container_width=True, hide_index=True)
 
-        # ── Cards por máquina ─────────────────────────────────────────────────
-        if _por_maquina:
-            st.divider()
-            st.subheader("🔍 Análise detalhada por máquina")
-            st.caption("Mesmas métricas consolidadas, agora abertas máquina a máquina.")
-
-            for _pm in _por_maquina:
-                _pm_pct_gap   = (_pm["gap_mes"] / _pm["real_mes"] * 100) if _pm["real_mes"] > 0 else 0
-                _pm_pct_ganho = ((_pm["pot_mes"] - _pm["real_mes"]) / _pm["real_mes"] * 100) if _pm["real_mes"] > 0 else 0
-                _pm_pct_crit  = (_pm["criticos"] / _pm["n_ops"] * 100) if _pm["n_ops"] > 0 else 0
-
-                with st.expander(
-                    f"**{_pm['maq_curta']}** — "
-                    f"Real: {_pm['real_mes']:,.0f} KG/mês  ·  "
-                    f"Potencial: {_pm['pot_mes']:,.0f} KG/mês  ·  "
-                    f"+{_pm_pct_ganho:.1f}%  ·  "
-                    f"🔴 {_pm['criticos']}/{_pm['n_ops']} ops críticos",
-                    expanded=False,
-                ):
-                    _pm_c1, _pm_c2, _pm_c3 = st.columns(3)
-                    _pm_c1.metric(
-                        "🔴 Operadores críticos",
-                        str(_pm["criticos"]),
-                        delta=f"{_pm_pct_crit:.0f}% dos operadores",
-                        delta_color="off",
-                    )
-                    _pm_c2.metric(
-                        "📉 Gap/mês nesta máquina",
-                        f"{_pm['gap_mes']:,.0f} KG",
-                        delta=f"+{_pm_pct_gap:.1f}% a mais se nivelados ao melhor",
-                        delta_color="normal",
-                    )
-                    _pm_c3.metric(
-                        "🏭 Potencial (todos no melhor)",
-                        f"{_pm['pot_mes']:,.0f} KG/mês",
-                        delta=f"Atual: {_pm['real_mes']:,.0f} KG/mês  (+{_pm_pct_ganho:.1f}%)",
-                        delta_color="normal",
-                    )
-
-                    # Mini-tabela de operadores desta máquina
-                    _pm_df = _pm["r_it"].copy()
-                    _pm_df["Semáforo"] = _pm_df["KG/Hora"].apply(
-                        lambda v: "🟢" if (v - _pm["melhor_kg_dia"]) / _pm["melhor_kg_dia"] * 100 >= -10
-                        else ("🟡" if (v - _pm["melhor_kg_dia"]) / _pm["melhor_kg_dia"] * 100 >= -25 else "🔴")
-                        if _pm["melhor_kg_dia"] > 0 else "―"
-                    )
-                    _pm_df["vs Melhor"] = _pm_df["KG/Hora"].apply(
-                        lambda v: f"{(v - _pm['melhor_kg_dia']) / _pm['melhor_kg_dia'] * 100:+.1f}%"
-                        if _pm["melhor_kg_dia"] > 0 else "―"
-                    )
-                    _pm_df["Gap KG/Mês"] = ((_pm_df["KG/Dia"] - _pm["melhor_kg_dia"]) * 22).round(0).astype(int).apply(lambda v: f"{v:+,}")
-                    st.dataframe(
-                        _pm_df[["Semáforo", "Nome Curto", "KG/Hora", "KG/Dia", "vs Melhor", "Gap KG/Mês"]].rename(
-                            columns={"Nome Curto": "Operador"}
-                        ),
-                        use_container_width=True, hide_index=True,
-                    )
-
     else:
         # ── Visão por máquina específica ─────────────────────────────────────
         _df_maq_c = df[df["Máquina"] == _maq_cmp].copy()
