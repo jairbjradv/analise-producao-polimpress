@@ -547,7 +547,7 @@ with aba1:
                 horas_op[op] = dias_uniq.apply(lambda d: horas_turno(ts, d)).sum()
                 dias_op[op]  = len(dias_uniq)
         r = (
-            df_m.groupby(["Operador", "Nome Curto"])
+            df_m.groupby(["Operador", "Nome Curto", "Turno"])
             .agg(Total_KG=("Peso (KG)", "sum"))
             .reset_index()
         )
@@ -579,24 +579,25 @@ with aba1:
             r_m = resumo_por_maquina(df_m)
             n_m = len(r_m)
 
-            _top3_m = min(n_m, 3)
-            cols_m = st.columns(_top3_m)
-            for i in range(_top3_m):
-                row = r_m.iloc[i]
+            # Melhor por turno nos cards principais
+            _cards_m = r_m.drop_duplicates(subset="Turno").reset_index(drop=True)
+            _rest_m  = r_m.drop(index=r_m.drop_duplicates(subset="Turno").index).reset_index(drop=True)
+            cols_m = st.columns(max(len(_cards_m), 1))
+            for i, (_, row) in enumerate(_cards_m.iterrows()):
+                _med_m = _medalhas[i] if i < len(_medalhas) else "·"
                 with cols_m[i]:
                     st.metric(
-                        label=f"{_medalhas[i]} {row['Nome Curto']}",
+                        label=f"{_med_m} {row['Nome Curto']} · {row['Turno']}",
                         value=f"{row['KG / Hora']:.2f} KG/hora",
                         delta=f"{row['Dias']} dias · {row['Horas']:.0f}h",
                     )
-            if n_m > 3:
-                with st.expander(f"Ver todos os {n_m} operadores"):
-                    _rest_m = r_m.iloc[3:]
+            if not _rest_m.empty:
+                with st.expander(f"Ver demais {len(_rest_m)} operador(es)"):
                     _cols_rest = st.columns(min(len(_rest_m), 5))
                     for j, (_, row) in enumerate(_rest_m.iterrows()):
                         with _cols_rest[j % 5]:
                             st.metric(
-                                label=row["Nome Curto"],
+                                label=f"{row['Nome Curto']} · {row['Turno']}",
                                 value=f"{row['KG / Hora']:.2f} KG/hora",
                                 delta=f"{row['Dias']} dias",
                             )
@@ -1385,28 +1386,35 @@ with aba9:
             _r_cmp["Gap KG/Dia"]  = (_r_cmp["KG / Dia"] - _melhor_d).round(1).apply(lambda v: f"{v:+.1f}")
             _r_cmp["Gap KG/Mês"]  = ((_r_cmp["KG / Dia"] - _melhor_d) * 22).round(0).astype(int).apply(lambda v: f"{v:+,}")
 
-            # ── Cards top 3 ───────────────────────────────────────────────────────
-            _med_cmp = ["🥇", "🥈", "🥉"]
-            _n_cmp = min(len(_r_cmp), 3)
-            _cols_cmp = st.columns(_n_cmp)
-            for _i in range(_n_cmp):
-                _row = _r_cmp.iloc[_i]
+            # ── Cards: melhor operador por turno (ou top-3 se turno filtrado) ───────
+            _med_cmp = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+            if _turno_cmp == "Todos os turnos":
+                # _r_cmp já está ordenado por KG/Hora desc → drop_duplicates mantém o melhor de cada turno
+                _cards_idx = _r_cmp.drop_duplicates(subset="Turno").index
+                _cards_df  = _r_cmp.loc[_cards_idx].reset_index(drop=True)
+                _rest_df   = _r_cmp.drop(index=_cards_idx).reset_index(drop=True)
+            else:
+                _cards_df = _r_cmp.head(3).reset_index(drop=True)
+                _rest_df  = _r_cmp.iloc[3:].reset_index(drop=True)
+
+            _cols_cmp = st.columns(max(len(_cards_df), 1))
+            for _i, (_, _row) in enumerate(_cards_df.iterrows()):
                 _sem, _pct = _semaforo(_row["KG / Hora"], _melhor_h)
+                _medal = _med_cmp[_i] if _i < len(_med_cmp) else "·"
                 with _cols_cmp[_i]:
                     st.metric(
-                        label=f"{_med_cmp[_i]} {_row['Nome Curto']} {_sem}",
+                        label=f"{_medal} {_row['Nome Curto']} {_sem} · {_row['Turno']}",
                         value=f"{_row['KG / Hora']:.2f} KG/h",
                         delta=f"{_row['vs Melhor']} vs melhor · {_row['Dias na Máq.']} dias",
                     )
-            if len(_r_cmp) > 3:
-                with st.expander(f"Ver todos os {len(_r_cmp)} operadores"):
-                    _rest_cmp = _r_cmp.iloc[3:]
-                    _cols_r = st.columns(min(len(_rest_cmp), 4))
-                    for _j, (_, _row) in enumerate(_rest_cmp.iterrows()):
+            if not _rest_df.empty:
+                with st.expander(f"Ver demais {len(_rest_df)} operador(es)"):
+                    _cols_r = st.columns(min(len(_rest_df), 4))
+                    for _j, (_, _row) in enumerate(_rest_df.iterrows()):
                         _sem, _ = _semaforo(_row["KG / Hora"], _melhor_h)
                         with _cols_r[_j % 4]:
                             st.metric(
-                                label=f"{_row['Nome Curto']} {_sem}",
+                                label=f"{_row['Nome Curto']} {_sem} · {_row['Turno']}",
                                 value=f"{_row['KG / Hora']:.2f} KG/h",
                                 delta=f"{_row['vs Melhor']} · {_row['Dias na Máq.']} dias",
                             )
