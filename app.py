@@ -149,13 +149,20 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
       • Formato diário  (RPCP620 antigo): Usuário → Turno → Dia → Recurso → Itens
       • Formato período (RPCP621 novo):   Recurso → Turno → Funcionário → Itens
     """
+    # Termos que indicam linhas de totais/cabeçalho que devem ser ignoradas.
+    # IMPORTANTE: nunca colocar nomes de máquinas aqui — a linha "Recurso: X - NOME"
+    # contém o nome da máquina e seria descartada inteira, perdendo todos os itens.
     _SKIP = (
         "Total de Registros", "Total Funcion", "Total Turno", "Total Recurso",
+        "Total Dia", "Total Geral",
         "Item QuantidadeUnidade", "POLIMPRESS", "CNPJ", "DRACENA",
         "Primeira Quebra", "Segunda Quebra", "Terceira Quebra", "Agrupamento",
         "Tipo Recurso", "Local Busca", "ROTINA:", "HORA:", "PÁGINA:", "INSCR.",
-        "Análise Resumida", "Análise De", "REBOBINAGEM", "CORTE E SOLDA",
+        "Análise Resumida", "Análise De",
     )
+    # Prefixos que NUNCA devem ser descartados pelo _SKIP (são cabeçalhos de dados)
+    _SAFE_PREFIXES = ("Recurso:", "Funcionário:", "Funcionario:", "Usuario:", "Usuário:")
+
     dados = []
     with pdfplumber.open(pdf_file) as pdf:
         operador = turno = recurso_atual = None
@@ -171,7 +178,9 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
                 linha = linha.strip()
                 if not linha:
                     continue
-                if any(k in linha for k in _SKIP):
+                # Descarta linhas de totais/cabeçalhos, MAS nunca descarta
+                # linhas que começam com prefixos de dados (Recurso, Funcionário, etc.)
+                if any(k in linha for k in _SKIP) and not any(linha.startswith(p) for p in _SAFE_PREFIXES):
                     continue
 
                 # ── Período (novo formato) ──────────────────────────────────
@@ -1724,10 +1733,39 @@ with aba7:
     # ── Totalizador geral ─────────────────────────────────────────────────────
     quebra_pagina()
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("⚖️ Total KG", f"{df['Peso (KG)'].sum():,.0f} KG")
+    c1.metric("⚖️ Total KG (lido)", f"{df['Peso (KG)'].sum():,.3f} KG")
     c2.metric("🔢 Total UN", f"{df['Qtd (UN)'].sum():,.0f} UN")
     c3.metric("👷 Operadores", df["Operador"].nunique())
     c4.metric("🏭 Máquinas", df["Máquina"].nunique())
+
+    # ── Validação contra o relatório original ─────────────────────────────────
+    st.divider()
+    st.subheader("🔍 Conferência com o relatório PDF")
+    st.caption("Digite o **Total Geral de KG** do seu relatório PDF para conferir se todos os registros foram lidos corretamente.")
+    _total_pdf = st.number_input(
+        "Total KG do relatório (ex: 191638.346)",
+        min_value=0.0, value=0.0, step=0.001, format="%.3f",
+        key="total_pdf_input",
+    )
+    if _total_pdf > 0:
+        _total_lido = df["Peso (KG)"].sum()
+        _diff = _total_lido - _total_pdf
+        _pct_diff = (_diff / _total_pdf * 100)
+        _cv1, _cv2, _cv3 = st.columns(3)
+        _cv1.metric("📄 Total PDF", f"{_total_pdf:,.3f} KG")
+        _cv2.metric("💻 Total lido pelo sistema", f"{_total_lido:,.3f} KG")
+        _cv3.metric(
+            "⚠️ Diferença",
+            f"{_diff:+,.3f} KG",
+            delta=f"{_pct_diff:+.2f}%",
+            delta_color="inverse",
+        )
+        if abs(_pct_diff) < 0.1:
+            st.success("✅ Totais conferem — todos os registros foram lidos corretamente.")
+        elif abs(_pct_diff) < 2:
+            st.warning(f"⚠️ Diferença pequena de {abs(_diff):,.1f} KG ({abs(_pct_diff):.2f}%) — pode ser arredondamento ou itens de recurso não-humano.")
+        else:
+            st.error(f"❌ Diferença de {abs(_diff):,.1f} KG ({abs(_pct_diff):.1f}%) — alguns registros podem não ter sido lidos. Verifique se o PDF está no formato RPCP621.")
 
 
 # ── Aba 8: Dados Brutos ───────────────────────────────────────────────────────
