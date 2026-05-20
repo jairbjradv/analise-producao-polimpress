@@ -310,6 +310,18 @@ df["Data_dt"]           = pd.to_datetime(df["Data"], format="%d/%m/%Y")
 df["Periodo_Inicio_dt"] = pd.to_datetime(df["Periodo_Inicio"], format="%d/%m/%Y", errors="coerce")
 df["Periodo_Fim_dt"]    = pd.to_datetime(df["Periodo_Fim"],    format="%d/%m/%Y", errors="coerce")
 
+# ── Turno principal por operador ──────────────────────────────────────────────
+# Para cada operador, o turno com maior KG produzido é o seu turno "oficial".
+# Horas extras em outros turnos ficam registradas sob o turno principal.
+_turno_principal = (
+    df.groupby(["Operador", "Turno"])["Peso (KG)"].sum()
+    .reset_index()
+    .sort_values("Peso (KG)", ascending=False)
+    .drop_duplicates(subset="Operador")   # mantém só o turno com mais KG
+    .set_index("Operador")["Turno"]
+)
+df["Turno"] = df["Operador"].map(_turno_principal)
+
 _turnos_no_df = sorted(df["Turno"].unique())
 _resumo_turnos = "  ·  ".join(
     f"**{t}**: {(df['Turno']==t).sum()} reg." for t in _turnos_no_df
