@@ -39,12 +39,16 @@ st.title("📊 Sistema de Análise de Produção Homem x Máquina")
 st.subheader("Análise unificada de relatórios de produção por operador")
 
 st.markdown("""
-> 📄 **Relatório necessário:** utilize o **RPCP621 — Relatório para Análise de Produção** para gerar os PDFs compatíveis com este sistema.
+> 📄 **Relatório necessário:** utilize o **RPCP621 — Análise Resumida de Produção Agrupada por Quebra por Dia x Recurso x Funcionário x Item** — gere um PDF por turno e carregue todos juntos. O turno de cada operador é detectado automaticamente pelo relatório.
 
-- 🏆 **Ranking de Operadores** — compara todos os operadores por **KG/hora** real trabalhada, eliminando a diferença de turno, sábados e dias trabalhados. Também detalha o desempenho de cada operador dentro de cada máquina que utilizou.
+- 🏆 **Ranking de Operadores** — compara todos os operadores por **KG/hora** real trabalhada, eliminando diferenças de turno, sábados e dias trabalhados. Detalha o desempenho de cada operador dentro de cada máquina que utilizou.
 - 🏭 **Ranking por Máquina** — mostra quais máquinas mais produziram (KG/dia e UN/dia), qual operador foi o melhor em cada uma e permite comparar lado a lado os operadores de uma mesma máquina.
 - ⚖️ **Comparativo por Item** — selecione um produto e veja quem produziu mais (KG/hora) naquele item específico — comparação justa, mesma matéria-prima e mesmo produto.
 - 🏅 **Top Produção** — ranking de quem produziu mais em volume total (KG e UN), tanto por operador quanto por máquina.
+- 🎯 **Comparativo por Máquina** — análise de gap de produtividade por máquina: semáforo 🟢🟡🔴 para cada operador, potencial de ganho em KG/mês e projeção de quanto a produção total cresceria se todos atingissem o nível do melhor. Filtrável por turno.
+- 📈 **Evolução Operador** — acompanha a evolução mês a mês de um operador específico em KG/hora, KG/dia e volume total.
+- 📅 **KG / Dia** — visualiza a produção diária de cada operador em gráfico de barras, com filtro por período e máquina.
+- 📊 **Resumo Geral** — visão consolidada do período: total de KG, UN, apontamentos, operadores e máquinas. Inclui validação do total do relatório.
 - 📋 **Dados Brutos** — todos os registros extraídos dos PDFs com filtros por operador, turno e máquina, exportável em CSV.
 """)
 
