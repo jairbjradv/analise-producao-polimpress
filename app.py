@@ -1395,8 +1395,25 @@ with aba9:
 
             _r_cmp["Semáforo"]    = _r_cmp["KG / Hora"].apply(lambda v: _semaforo(v, _melhor_h)[0])
             _r_cmp["vs Melhor"]   = _r_cmp["KG / Hora"].apply(lambda v: f"{_semaforo(v, _melhor_h)[1]:+.1f}%")
-            _r_cmp["Gap KG/Dia"]  = (_r_cmp["KG / Dia"] - _melhor_d).round(1).apply(lambda v: f"{v:+.1f}")
-            _r_cmp["Gap KG/Mês"]  = ((_r_cmp["KG / Dia"] - _melhor_d) * 22).round(0).astype(int).apply(lambda v: f"{v:+,}")
+
+            # ── Gap dia a dia por operador (reutilizado na tabela e nos cards) ───────
+            _gap_por_op_cmp: dict[str, float] = {}
+            for _op_g, _g_v in _df_validos.groupby("Operador"):
+                _ts_g  = _g_v["Turno"].iloc[0]
+                _fmt_g = _g_v["Formato"].iloc[0]
+                _real_g = _g_v["Peso (KG)"].sum()
+                _gap_v = 0.0
+                if _fmt_g == "diario":
+                    for _dt, _kg_d in _g_v.groupby("Data_dt")["Peso (KG)"].sum().items():
+                        _gap_v += max(0.0, _melhor_h * horas_turno(_ts_g, _dt) - _kg_d)
+                else:
+                    _gap_v = max(0.0, _melhor_h * _horas_cmp.get(_op_g, 0) - _real_g)
+                _gap_por_op_cmp[_op_g] = round(_gap_v, 1)
+
+            _r_cmp["Gap Período"]     = _r_cmp["Operador"].map(_gap_por_op_cmp).fillna(0)
+            _r_cmp["Gap Período fmt"] = _r_cmp["Gap Período"].apply(
+                lambda v: f"-{v:,.0f}" if v > 0 else "—"
+            )
 
             # ── Cards: melhor operador por turno (ou top-3 se turno filtrado) ───────
             _med_cmp = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
@@ -1472,10 +1489,10 @@ with aba9:
                 st.plotly_chart(_fig2, use_container_width=True)
 
             with _col_g3:
-                st.markdown("**KG / Mês projetado** *(KG/dia × 22)*")
+                st.markdown("**KG total no período**")
                 _fig3 = go.Figure(go.Bar(
-                    x=_r_cmp["Nome Curto"], y=_r_cmp["KG / Mês*"],
-                    text=_r_cmp["KG / Mês*"].apply(lambda v: f"{v:,.0f}"),
+                    x=_r_cmp["Nome Curto"], y=_r_cmp["Total_KG"],
+                    text=_r_cmp["Total_KG"].apply(lambda v: f"{v:,.0f}"),
                     textposition="inside", textfont=dict(size=13, color="white"),
                     marker_color=_cores_sem,
                 ))
@@ -1491,38 +1508,73 @@ with aba9:
             # ── Tabela completa ───────────────────────────────────────────────────
             st.subheader("📋 Tabela detalhada")
             st.caption("🟢 até 10% abaixo do melhor  ·  🟡 entre 10% e 25%  ·  🔴 mais de 25% abaixo")
+
             _df_exib_cmp = _r_cmp[[
                 "Semáforo", "Nome Curto", "Turno", "Dias na Máq.", "Horas",
-                "KG / Hora", "KG / Dia", "KG / Mês*",
-                "vs Melhor", "Gap KG/Dia", "Gap KG/Mês", "Itens", "Total_KG", "Total_UN",
+                "KG / Hora", "KG / Dia", "vs Melhor", "Gap Período fmt",
+                "Itens", "Total_KG", "Total_UN",
             ]].rename(columns={
-                "Nome Curto": "Operador",
-                "Total_KG": "Total KG",
-                "Total_UN": "Total UN",
-                "Gap KG/Mês": "Gap KG/Mês*",
+                "Nome Curto":     "Operador",
+                "Total_KG":       "Total KG",
+                "Total_UN":       "Total UN",
+                "Gap Período fmt": "Gap no período",
             }).copy()
 
-            # ── Linha de total / média ────────────────────────────────────────────
-            _tot = {
-                "Semáforo":     "―",
-                "Operador":     "📊 MÉDIA / TOTAL",
-                "Turno":        "",
-                "Dias na Máq.": f"{_r_cmp['Dias na Máq.'].mean():.1f} méd",
-                "Horas":        round(_r_cmp["Horas"].mean(), 1),
-                "KG / Hora":    round(_r_cmp["KG / Hora"].mean(), 2),        # média
-                "KG / Dia":     round(_r_cmp["KG / Dia"].mean(), 1),         # média
-                "KG / Mês*":    int(_r_cmp["KG / Mês*"].mean()),             # média
-                "vs Melhor":    f"{((_r_cmp['KG / Hora'].mean()-_melhor_h)/_melhor_h*100):+.1f}%",
-                "Gap KG/Dia":   f"{(_r_cmp['KG / Dia'].mean()-_melhor_d):+.1f}",
-                "Gap KG/Mês*":  f"{int((_r_cmp['KG / Dia'].mean()-_melhor_d)*22):+,}",
-                "Itens":        "―",
-                "Total KG":     round(_r_cmp["Total_KG"].sum(), 1),          # soma
-                "Total UN":     int(_r_cmp["Total_UN"].sum()),               # soma
+            # Linha de operadores excluídos (< 5 dias) agrupados em uma só
+            _df_excluidos = _df_maq_c[~_df_maq_c["Operador"].isin(_ops_ok)]
+            _kg_outros = _df_excluidos["Peso (KG)"].sum()
+            _un_outros = int(_df_excluidos[_df_excluidos["Unidade"] == "UN"]["Qtd (UN)"].sum())
+            _n_outros  = _df_excluidos["Operador"].nunique()
+            _row_outros = {
+                "Semáforo":       "⚙️",
+                "Operador":       f"Outros {_n_outros} op. (< {_MIN_DIAS} dias na máq.)",
+                "Turno":          "―",
+                "Dias na Máq.":   "< 5",
+                "Horas":          "―",
+                "KG / Hora":      "―",
+                "KG / Dia":       "―",
+                "vs Melhor":      "―",
+                "Gap no período": "―",
+                "Itens":          "―",
+                "Total KG":       round(_kg_outros, 1),
+                "Total UN":       _un_outros,
             }
+
+            # Linha total geral — bate com os cards
+            _gap_maq_periodo  = _r_cmp["Gap Período"].sum()
+            _real_maq_periodo = _r_cmp["Total_KG"].sum()
+            _total_maq_relatorio = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
+            _pct_gap_maq_per = (_gap_maq_periodo / _real_maq_periodo * 100) if _real_maq_periodo > 0 else 0
+            _projetado_maq   = _total_maq_relatorio * (1 + _pct_gap_maq_per / 100)
+            _ganho_real_maq  = _projetado_maq - _total_maq_relatorio
+
+            _row_total = {
+                "Semáforo":       "📊",
+                "Operador":       "TOTAL GERAL",
+                "Turno":          "―",
+                "Dias na Máq.":   f"{_r_cmp['Dias na Máq.'].mean():.1f} méd",
+                "Horas":          round(_r_cmp["Horas"].mean(), 1),
+                "KG / Hora":      round(_r_cmp["KG / Hora"].mean(), 2),
+                "KG / Dia":       round(_r_cmp["KG / Dia"].mean(), 1),
+                "vs Melhor":      f"{((_r_cmp['KG / Hora'].mean()-_melhor_h)/_melhor_h*100):+.1f}%",
+                "Gap no período": f"-{_gap_maq_periodo:,.0f}",   # ← bate com card "KG deixados"
+                "Itens":          "―",
+                "Total KG":       round(_total_maq_relatorio, 1), # ← bate com card "Total produzido"
+                "Total UN":       int(_df_maq_c["Peso (KG)"].count()),  # total apontamentos
+            }
+
             _df_exib_final = pd.concat(
-                [_df_exib_cmp, pd.DataFrame([_tot])], ignore_index=True
+                [_df_exib_cmp,
+                 pd.DataFrame([_row_outros]) if _kg_outros > 0 else pd.DataFrame(),
+                 pd.DataFrame([_row_total])],
+                ignore_index=True,
             )
             st.dataframe(_df_exib_final, use_container_width=True, hide_index=True)
+            st.caption(
+                f"📦 Total produzido = **{_total_maq_relatorio:,.0f} KG** · "
+                f"📉 KG deixados na mesa = **{_gap_maq_periodo:,.0f} KG** · "
+                f"🚀 Projetado = **{_projetado_maq:,.0f} KG**"
+            )
 
             # ── Impacto do gap — dia a dia nos dias reais trabalhados ─────────────
             st.divider()
@@ -1532,25 +1584,7 @@ with aba9:
                 "quanto a mais teria produzido se fosse igual ao melhor (KG/hora)?"
             )
 
-            # Gap dia a dia: para cada operador, cada dia nesta máquina
-            _gap_maq_periodo  = 0.0
-            _real_maq_periodo = 0.0
-            for _op_g, _g in _df_validos.groupby("Operador"):
-                _ts_g  = _g["Turno"].iloc[0]
-                _fmt_g = _g["Formato"].iloc[0]
-                _real_g = _g["Peso (KG)"].sum()
-                _real_maq_periodo += _real_g
-                if _fmt_g == "diario":
-                    for _dt, _kg_d in _g.groupby("Data_dt")["Peso (KG)"].sum().items():
-                        _h_d = horas_turno(_ts_g, _dt)
-                        _gap_maq_periodo += max(0.0, _melhor_h * _h_d - _kg_d)
-                else:
-                    _gap_maq_periodo += max(0.0, _melhor_h * _horas_cmp.get(_op_g, 0) - _real_g)
-
-            _total_maq_relatorio = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
-            _pct_gap_maq_per = (_gap_maq_periodo / _real_maq_periodo * 100) if _real_maq_periodo > 0 else 0
-            _projetado_maq   = _total_maq_relatorio * (1 + _pct_gap_maq_per / 100)
-            _ganho_real_maq  = _projetado_maq - _total_maq_relatorio
+            # Variáveis já calculadas no bloco da tabela acima
             _n_criticos_maq  = len(_r_cmp[_r_cmp["Semáforo"] == "🔴"])
             _n_amarelos_maq  = len(_r_cmp[_r_cmp["Semáforo"] == "🟡"])
             _pct_atencao_maq = ((_n_criticos_maq + _n_amarelos_maq) / len(_r_cmp) * 100) if len(_r_cmp) > 0 else 0
