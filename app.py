@@ -1399,8 +1399,31 @@ with aba9:
             if _df_atencao.empty:
                 st.success("✅ Nenhum operador em atenção no período — todos dentro de 10% do melhor em cada máquina.")
             else:
-                _altura_atencao = 38 + len(_df_atencao) * 35 + 2
-                st.dataframe(_df_atencao, use_container_width=True, hide_index=True,
+                # Linha TOTAL GERAL — soma dos operadores em atenção
+                _gap_atencao  = _df_resumo_all[_df_resumo_all["Semáforo"].isin(["🔴", "🟡"])]["Gap no período"] \
+                    .str.replace(",", "").str.replace("+", "").apply(
+                        lambda v: int(v) if v not in ("—", "―", "") else 0
+                    ).sum()
+                _row_total_cons = {
+                    "Máquina":        "―",
+                    "Operador":       "TOTAL GERAL",
+                    "Turno":          "―",
+                    "Semáforo":       "📊",
+                    "vs Melhor":      "―",
+                    "KG / Hora":      round(_df_atencao["KG / Hora"].mean(), 2),
+                    "KG / Dia":       round(_df_atencao["KG / Dia"].mean(), 1),
+                    "KG no período":  int(_df_atencao["KG no período"].sum()),
+                    "Gap no período": f"{_gap_atencao:+,}",
+                    "Gap / Dia":      "―",
+                    "Projetado KG":   int(_df_atencao["Projetado KG"].sum()),
+                    "Melhor ref.":    "―",
+                }
+                _df_atencao_final = pd.concat(
+                    [_df_atencao, pd.DataFrame([_row_total_cons])],
+                    ignore_index=True,
+                )
+                _altura_atencao = 38 + len(_df_atencao_final) * 35 + 2
+                st.dataframe(_df_atencao_final, use_container_width=True, hide_index=True,
                              height=_altura_atencao)
 
     else:
