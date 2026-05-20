@@ -1090,6 +1090,8 @@ with aba9:
         _criticos_total = 0
         _gap_total = 0.0
         _potencial_total = 0.0
+        _producao_real_total = 0.0
+        _total_ops_analisados = 0
         _linhas_resumo = []
 
         for _maq_iter in sorted(df["Máquina"].unique()):
@@ -1136,6 +1138,8 @@ with aba9:
                     _criticos_total += 1
                 _gap_total += max(0, (_melhor_d_it - _row["KG/Dia"]) * 22)
                 _potencial_total += _melhor_d_it * 22
+                _producao_real_total += _row["KG/Dia"] * 22
+                _total_ops_analisados += 1
 
                 _linhas_resumo.append({
                     "Máquina":      _maq_iter.split(" - ")[0],
@@ -1150,10 +1154,29 @@ with aba9:
                 })
 
         # Cards consolidados
+        _pct_criticos = (_criticos_total / _total_ops_analisados * 100) if _total_ops_analisados > 0 else 0
+        _pct_gap      = (_gap_total / _producao_real_total * 100) if _producao_real_total > 0 else 0
+        _pct_ganho    = ((_potencial_total - _producao_real_total) / _producao_real_total * 100) if _producao_real_total > 0 else 0
+
         _c1, _c2, _c3 = st.columns(3)
-        _c1.metric("🔴 Operadores críticos (total)", str(_criticos_total))
-        _c2.metric("📉 Gap total/mês (todas máquinas)", f"{_gap_total:,.0f} KG")
-        _c3.metric("🏭 Potencial se todos no melhor nível", f"{_potencial_total:,.0f} KG/mês")
+        _c1.metric(
+            "🔴 Operadores críticos (total)",
+            str(_criticos_total),
+            delta=f"{_pct_criticos:.0f}% dos operadores analisados",
+            delta_color="off",
+        )
+        _c2.metric(
+            "📉 Gap total/mês (todas máquinas)",
+            f"{_gap_total:,.0f} KG",
+            delta=f"+{_pct_gap:.1f}% a mais se nivelados ao melhor",
+            delta_color="normal",
+        )
+        _c3.metric(
+            "🏭 Potencial se todos no melhor nível",
+            f"{_potencial_total:,.0f} KG/mês",
+            delta=f"Atual: {_producao_real_total:,.0f} KG/mês  (+{_pct_ganho:.1f}%)",
+            delta_color="normal",
+        )
 
         st.divider()
         st.subheader("📋 Resumo por máquina × operador")
