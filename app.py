@@ -1472,6 +1472,7 @@ with aba9:
             _melhor_h = _r_cmp["KG / Hora"].iloc[0]
             _melhor_d = _r_cmp["KG / Dia"].iloc[0]
 
+
             def _semaforo(val, ref):
                 pct = (val - ref) / ref * 100 if ref > 0 else 0
                 if pct >= -10:  return "🟢", pct
@@ -1615,6 +1616,14 @@ with aba9:
             # ── Tabela completa ───────────────────────────────────────────────────
             st.subheader("📋 Tabela detalhada")
             st.caption("🟢 até 10% abaixo do melhor  ·  🟡 entre 10% e 25%  ·  🔴 mais de 25% abaixo")
+
+            # Tabela: verdes primeiro, depois do pior para o melhor
+            _r_cmp["_is_green"] = (_r_cmp["Semáforo"] == "🟢").astype(int)
+            _r_cmp["_pct_num"]  = _r_cmp["vs Melhor"].str.replace("%", "").str.replace("+", "").astype(float)
+            _r_cmp = _r_cmp.sort_values(
+                ["_is_green", "_pct_num"],
+                ascending=[False, True],   # verde primeiro; depois mais negativo primeiro
+            ).reset_index(drop=True)
 
             _df_exib_cmp = _r_cmp[[
                 "Semáforo", "Nome Curto", "Turno", "Dias na Máq.", "Horas",
