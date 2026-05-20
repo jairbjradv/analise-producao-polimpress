@@ -1093,6 +1093,7 @@ with aba9:
         _producao_real_total = 0.0
         _total_ops_analisados = 0
         _linhas_resumo = []
+        _por_maquina = []   # resumo por máquina para cards individuais
 
         for _maq_iter in sorted(df["Máquina"].unique()):
             _df_it = df[df["Máquina"] == _maq_iter]
@@ -1131,16 +1132,24 @@ with aba9:
             _melhor_d_it = _r_it["KG/Dia"].iloc[0]
             _melhor_nome = _r_it["Nome Curto"].iloc[0]
 
+            _gap_maq = 0.0
+            _pot_maq = 0.0
+            _real_maq = 0.0
+            _crit_maq = 0
+
             for _, _row in _r_it.iterrows():
                 _pct = (_row["KG/Hora"] - _melhor_h_it) / _melhor_h_it * 100 if _melhor_h_it > 0 else 0
                 _sem = "🟢" if _pct >= -10 else ("🟡" if _pct >= -25 else "🔴")
                 if _sem == "🔴":
                     _criticos_total += 1
-                _gap_total += max(0, (_melhor_d_it - _row["KG/Dia"]) * 22)
+                    _crit_maq += 1
+                _gap_total  += max(0, (_melhor_d_it - _row["KG/Dia"]) * 22)
                 _potencial_total += _melhor_d_it * 22
                 _producao_real_total += _row["KG/Dia"] * 22
                 _total_ops_analisados += 1
-
+                _gap_maq  += max(0, (_melhor_d_it - _row["KG/Dia"]) * 22)
+                _pot_maq  += _melhor_d_it * 22
+                _real_maq += _row["KG/Dia"] * 22
                 _linhas_resumo.append({
                     "Máquina":      _maq_iter.split(" - ")[0],
                     "Operador":     _row["Nome Curto"],
@@ -1152,6 +1161,19 @@ with aba9:
                     "Gap KG/Mês*":  f"{int((_row['KG/Dia'] - _melhor_d_it)*22):+,}",
                     "Melhor ref.":  _melhor_nome,
                 })
+
+            _por_maquina.append({
+                "maq":       _maq_iter,
+                "maq_curta": _maq_iter.split(" - ")[0],
+                "n_ops":     len(_r_it),
+                "criticos":  _crit_maq,
+                "gap_mes":   _gap_maq,
+                "pot_mes":   _pot_maq,
+                "real_mes":  _real_maq,
+                "melhor_nome": _melhor_nome,
+                "melhor_kg_dia": _melhor_d_it,
+                "r_it":      _r_it,   # dataframe de operadores desta máquina
+            })
 
         # Cards consolidados
         _pct_criticos = (_criticos_total / _total_ops_analisados * 100) if _total_ops_analisados > 0 else 0
@@ -1198,6 +1220,64 @@ with aba9:
                 [_df_resumo_all, pd.DataFrame([_tot_all])], ignore_index=True
             )
             st.dataframe(_df_resumo_all, use_container_width=True, hide_index=True)
+
+        # ── Cards por máquina ─────────────────────────────────────────────────
+        if _por_maquina:
+            st.divider()
+            st.subheader("🔍 Análise detalhada por máquina")
+            st.caption("Mesmas métricas consolidadas, agora abertas máquina a máquina.")
+
+            for _pm in _por_maquina:
+                _pm_pct_gap   = (_pm["gap_mes"] / _pm["real_mes"] * 100) if _pm["real_mes"] > 0 else 0
+                _pm_pct_ganho = ((_pm["pot_mes"] - _pm["real_mes"]) / _pm["real_mes"] * 100) if _pm["real_mes"] > 0 else 0
+                _pm_pct_crit  = (_pm["criticos"] / _pm["n_ops"] * 100) if _pm["n_ops"] > 0 else 0
+
+                with st.expander(
+                    f"**{_pm['maq_curta']}** — "
+                    f"Real: {_pm['real_mes']:,.0f} KG/mês  ·  "
+                    f"Potencial: {_pm['pot_mes']:,.0f} KG/mês  ·  "
+                    f"+{_pm_pct_ganho:.1f}%  ·  "
+                    f"🔴 {_pm['criticos']}/{_pm['n_ops']} ops críticos",
+                    expanded=False,
+                ):
+                    _pm_c1, _pm_c2, _pm_c3 = st.columns(3)
+                    _pm_c1.metric(
+                        "🔴 Operadores críticos",
+                        str(_pm["criticos"]),
+                        delta=f"{_pm_pct_crit:.0f}% dos operadores",
+                        delta_color="off",
+                    )
+                    _pm_c2.metric(
+                        "📉 Gap/mês nesta máquina",
+                        f"{_pm['gap_mes']:,.0f} KG",
+                        delta=f"+{_pm_pct_gap:.1f}% a mais se nivelados ao melhor",
+                        delta_color="normal",
+                    )
+                    _pm_c3.metric(
+                        "🏭 Potencial (todos no melhor)",
+                        f"{_pm['pot_mes']:,.0f} KG/mês",
+                        delta=f"Atual: {_pm['real_mes']:,.0f} KG/mês  (+{_pm_pct_ganho:.1f}%)",
+                        delta_color="normal",
+                    )
+
+                    # Mini-tabela de operadores desta máquina
+                    _pm_df = _pm["r_it"].copy()
+                    _pm_df["Semáforo"] = _pm_df["KG/Hora"].apply(
+                        lambda v: "🟢" if (v - _pm["melhor_kg_dia"]) / _pm["melhor_kg_dia"] * 100 >= -10
+                        else ("🟡" if (v - _pm["melhor_kg_dia"]) / _pm["melhor_kg_dia"] * 100 >= -25 else "🔴")
+                        if _pm["melhor_kg_dia"] > 0 else "―"
+                    )
+                    _pm_df["vs Melhor"] = _pm_df["KG/Hora"].apply(
+                        lambda v: f"{(v - _pm['melhor_kg_dia']) / _pm['melhor_kg_dia'] * 100:+.1f}%"
+                        if _pm["melhor_kg_dia"] > 0 else "―"
+                    )
+                    _pm_df["Gap KG/Mês"] = ((_pm_df["KG/Dia"] - _pm["melhor_kg_dia"]) * 22).round(0).astype(int).apply(lambda v: f"{v:+,}")
+                    st.dataframe(
+                        _pm_df[["Semáforo", "Nome Curto", "KG/Hora", "KG/Dia", "vs Melhor", "Gap KG/Mês"]].rename(
+                            columns={"Nome Curto": "Operador"}
+                        ),
+                        use_container_width=True, hide_index=True,
+                    )
 
     else:
         # ── Visão por máquina específica ─────────────────────────────────────
