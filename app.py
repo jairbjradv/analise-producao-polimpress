@@ -1233,26 +1233,33 @@ with aba9:
             delta_color="normal",
         )
 
-        # ── Linha 2: período real vs projetado ───────────────────────────────
-        _ganho_periodo   = _proj_periodo_total - _real_periodo_total
-        _pct_gp          = (_ganho_periodo / _real_periodo_total * 100) if _real_periodo_total > 0 else 0
+        # ── Linha 2: total geral do relatório + ganho potencial ─────────────
+        # Usa o total real completo do relatório (todos os operadores/máquinas)
+        # e aplica o % de ganho calculado sobre os operadores comparáveis
+        _total_relatorio   = df["Peso (KG)"].sum()
+        _pct_gp            = ((_proj_periodo_total - _real_periodo_total) / _real_periodo_total * 100) if _real_periodo_total > 0 else 0
+        _projetado_total   = _total_relatorio * (1 + _pct_gp / 100)
+        _ganho_real        = _projetado_total - _total_relatorio
+
         st.markdown("---")
-        st.caption("📅 Comparativo do período carregado (dias reais trabalhados por cada operador)")
+        st.caption("📅 Projeção sobre o total real do relatório — se todos os operadores comparáveis atingissem o nível do melhor")
         _p1, _p2, _p3 = st.columns(3)
         _p1.metric(
             "📦 Total produzido no período",
-            f"{_real_periodo_total:,.0f} KG",
+            f"{_total_relatorio:,.0f} KG",
+            delta="Total real do relatório",
+            delta_color="off",
         )
         _p2.metric(
             "🚀 Projetado se todos no nível do melhor",
-            f"{_proj_periodo_total:,.0f} KG",
-            delta=f"+{_ganho_periodo:,.0f} KG a mais (+{_pct_gp:.1f}%)",
+            f"{_projetado_total:,.0f} KG",
+            delta=f"+{_ganho_real:,.0f} KG a mais (+{_pct_gp:.1f}%)",
             delta_color="normal",
         )
         _p3.metric(
-            "📈 Ganho potencial no período",
-            f"+{_ganho_periodo:,.0f} KG",
-            delta=f"+{_pct_gp:.1f}% de aumento na produção",
+            "📈 Ganho real potencial no período",
+            f"+{_ganho_real:,.0f} KG",
+            delta=f"+{_pct_gp:.1f}% sobre a produção total",
             delta_color="normal",
         )
 
@@ -1263,7 +1270,14 @@ with aba9:
             _df_resumo_all = pd.DataFrame(_linhas_resumo).sort_values(
                 ["Máquina", "KG / Hora"], ascending=[True, False]
             )
-            _df_atencao = _df_resumo_all[_df_resumo_all["Semáforo"].isin(["🔴", "🟡"])].reset_index(drop=True)
+            # Ordena do pior (vs Melhor mais negativo) para o menos pior
+            _df_atencao = (
+                _df_resumo_all[_df_resumo_all["Semáforo"].isin(["🔴", "🟡"])]
+                .assign(_pct_num=lambda d: d["vs Melhor"].str.replace("%", "").str.replace("+", "").astype(float))
+                .sort_values("_pct_num", ascending=True)
+                .drop(columns="_pct_num")
+                .reset_index(drop=True)
+            )
             if _df_atencao.empty:
                 st.success("✅ Nenhum operador em atenção no período — todos dentro de 10% do melhor em cada máquina.")
             else:
@@ -1495,32 +1509,39 @@ with aba9:
                 delta_color="normal",
             )
 
-            # ── Período real vs projetado ─────────────────────────────────────
+            # ── Período real vs projetado (sobre total real da máquina) ─────────
+            # % de ganho calculado sobre operadores comparáveis
             _real_per_maq = _r_cmp["Total_KG"].sum()
             _proj_per_maq = sum(
                 _melhor_d * _dias_cmp.get(op, 0)
                 for op in _r_cmp["Operador"]
             )
-            _ganho_per_maq = _proj_per_maq - _real_per_maq
-            _pct_ganho_per = (_ganho_per_maq / _real_per_maq * 100) if _real_per_maq > 0 else 0
+            _pct_ganho_per = (_proj_per_maq - _real_per_maq) / _real_per_maq * 100 if _real_per_maq > 0 else 0
+
+            # Total real da máquina = toda a produção dela no período (sem filtro de dias)
+            _total_maq_relatorio = df[df["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
+            _projetado_maq       = _total_maq_relatorio * (1 + _pct_ganho_per / 100)
+            _ganho_real_maq      = _projetado_maq - _total_maq_relatorio
 
             st.markdown("---")
-            st.caption("📅 Comparativo do período carregado (dias reais trabalhados por cada operador)")
+            st.caption("📅 Projeção sobre o total real da máquina no período — se todos atingissem o nível do melhor")
             _pp1, _pp2, _pp3 = st.columns(3)
             _pp1.metric(
                 "📦 Total produzido no período",
-                f"{_real_per_maq:,.0f} KG",
+                f"{_total_maq_relatorio:,.0f} KG",
+                delta="Total real da máquina",
+                delta_color="off",
             )
             _pp2.metric(
                 "🚀 Projetado se todos no nível do melhor",
-                f"{_proj_per_maq:,.0f} KG",
-                delta=f"+{_ganho_per_maq:,.0f} KG a mais (+{_pct_ganho_per:.1f}%)",
+                f"{_projetado_maq:,.0f} KG",
+                delta=f"+{_ganho_real_maq:,.0f} KG a mais (+{_pct_ganho_per:.1f}%)",
                 delta_color="normal",
             )
             _pp3.metric(
-                "📈 Ganho potencial no período",
-                f"+{_ganho_per_maq:,.0f} KG",
-                delta=f"+{_pct_ganho_per:.1f}% de aumento na produção",
+                "📈 Ganho real potencial no período",
+                f"+{_ganho_real_maq:,.0f} KG",
+                delta=f"+{_pct_ganho_per:.1f}% sobre a produção total da máquina",
                 delta_color="normal",
             )
 
