@@ -1472,15 +1472,37 @@ with aba9:
             st.divider()
             st.subheader("💰 Impacto do gap de produtividade")
             st.caption("Quanto cada operador deixou de produzir por mês em relação ao melhor — referência para conversas de desempenho.")
+
             _n_operadores_baixo = len(_r_cmp[_r_cmp["Semáforo"] == "🔴"])
             _gap_total_mes = sum(
                 max(0, (_melhor_d - row["KG / Dia"]) * 22)
                 for _, row in _r_cmp.iterrows()
             )
+            _real_mes_maq    = _r_cmp["KG / Dia"].sum() * 22
+            _pot_mes_maq     = _melhor_d * 22 * len(_r_cmp)
+            _pct_crit_maq    = (_n_operadores_baixo / len(_r_cmp) * 100) if len(_r_cmp) > 0 else 0
+            _pct_gap_maq     = (_gap_total_mes / _real_mes_maq * 100) if _real_mes_maq > 0 else 0
+            _pct_ganho_maq   = ((_pot_mes_maq - _real_mes_maq) / _real_mes_maq * 100) if _real_mes_maq > 0 else 0
+
             _c1, _c2, _c3 = st.columns(3)
-            _c1.metric("🔴 Operadores críticos", f"{_n_operadores_baixo}")
-            _c2.metric("📉 Gap total/mês (vs. melhor)", f"{_gap_total_mes:,.0f} KG")
-            _c3.metric("🏭 Potencial se todos no melhor nível", f"{_melhor_d * 22 * len(_r_cmp):,.0f} KG/mês")
+            _c1.metric(
+                "🔴 Operadores críticos",
+                str(_n_operadores_baixo),
+                delta=f"{_pct_crit_maq:.0f}% dos operadores",
+                delta_color="off",
+            )
+            _c2.metric(
+                "📉 Gap total/mês nesta máquina",
+                f"{_gap_total_mes:,.0f} KG",
+                delta=f"+{_pct_gap_maq:.1f}% a mais se nivelados ao melhor",
+                delta_color="normal",
+            )
+            _c3.metric(
+                "🏭 Potencial se todos no melhor nível",
+                f"{_pot_mes_maq:,.0f} KG/mês",
+                delta=f"Atual: {_real_mes_maq:,.0f} KG/mês  (+{_pct_ganho_maq:.1f}%)",
+                delta_color="normal",
+            )
 
 
 # ── Aba 6: KG / Dia ──────────────────────────────────────────────────────────
