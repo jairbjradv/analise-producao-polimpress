@@ -1205,27 +1205,36 @@ with aba9:
                     _crit_maq += 1
                 elif _sem == "🟡":
                     _amarelos_total += 1
-                _gap_total  += max(0, (_melhor_d_it - _row["KG/Dia"]) * 22)
-                _potencial_total += _melhor_d_it * 22
-                _producao_real_total += _row["KG/Dia"] * 22
+
+                # Gap baseado em KG/hora × horas reais do operador no período
+                # (justo entre turnos — cada um só tem as horas que efetivamente trabalhou)
+                _horas_op = _horas_it.get(_row["Operador"], 0)
+                _kg_potencial_op = _melhor_h_it * _horas_op   # se fosse o melhor
+                _kg_real_op      = _row["Total_KG"]            # o que produziu de fato
+                _gap_op          = max(0, _kg_potencial_op - _kg_real_op)
+
+                _gap_total           += _gap_op
+                _potencial_total     += _kg_potencial_op
+                _producao_real_total += _kg_real_op
                 _total_ops_analisados += 1
-                _gap_maq  += max(0, (_melhor_d_it - _row["KG/Dia"]) * 22)
-                _pot_maq  += _melhor_d_it * 22
-                _real_maq += _row["KG/Dia"] * 22
-                # período real: KG produzido × dias reais trabalhados
-                _op_dias = _dias_it_v.get(_row["Operador"], 0)
-                _real_periodo_total += _row["Total_KG"]
-                _proj_periodo_total += _melhor_d_it * _op_dias
+                _gap_maq  += _gap_op
+                _pot_maq  += _kg_potencial_op
+                _real_maq += _kg_real_op
+                _real_periodo_total  += _kg_real_op
+                _proj_periodo_total  += _kg_potencial_op
+
+                _gap_kg_h = (_row["KG/Hora"] - _melhor_h_it) * _horas_op  # gap em KG no período
                 _linhas_resumo.append({
-                    "Máquina":      _maq_iter.split(" - ")[0],
-                    "Operador":     _row["Nome Curto"],
-                    "Semáforo":     _sem,
-                    "vs Melhor":    f"{_pct:+.1f}%",
-                    "KG / Hora":    _row["KG/Hora"],
-                    "KG / Dia":     _row["KG/Dia"],
-                    "KG / Mês*":    int(_row["KG/Dia"] * 22),
-                    "Gap KG/Mês*":  f"{int((_row['KG/Dia'] - _melhor_d_it)*22):+,}",
-                    "Melhor ref.":  _melhor_nome,
+                    "Máquina":        _maq_iter.split(" - ")[0],
+                    "Operador":       _row["Nome Curto"],
+                    "Turno":          _row["Turno"],
+                    "Semáforo":       _sem,
+                    "vs Melhor":      f"{_pct:+.1f}%",
+                    "KG / Hora":      _row["KG/Hora"],
+                    "KG / Dia":       _row["KG/Dia"],
+                    "KG no período":  int(_kg_real_op),
+                    "Gap no período": f"{int(_gap_kg_h):+,}",
+                    "Melhor ref.":    _melhor_nome,
                 })
 
             _por_maquina.append({
@@ -1261,9 +1270,9 @@ with aba9:
             delta_color="off",
         )
         _c2.metric(
-            "📉 Gap total/mês (todas máquinas)",
+            "📉 Gap no período (todas máquinas)",
             f"{_gap_total:,.0f} KG",
-            delta=f"+{_pct_gap:.1f}% a mais se nivelados ao melhor",
+            delta=f"+{_pct_gap:.1f}% deixado na mesa — nas mesmas horas disponíveis",
             delta_color="normal",
         )
         _c3.metric(
