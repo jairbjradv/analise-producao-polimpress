@@ -1201,25 +1201,17 @@ with aba9:
         )
 
         st.divider()
-        st.subheader("📋 Resumo por máquina × operador")
-        st.caption("Somente operadores com ≥ 5 dias em cada máquina.")
+        st.subheader("🔴 Operadores críticos por máquina")
+        st.caption("Somente operadores com ≥ 5 dias na máquina e semáforo 🔴 (mais de 25% abaixo do melhor).")
         if _linhas_resumo:
             _df_resumo_all = pd.DataFrame(_linhas_resumo).sort_values(
                 ["Máquina", "KG / Hora"], ascending=[True, False]
             )
-            # Linha de total
-            _tot_all = {
-                "Máquina": "―", "Operador": "📊 MÉDIA / TOTAL", "Semáforo": "―",
-                "vs Melhor": f"{(_df_resumo_all['KG / Hora'].mean() if len(_df_resumo_all)>0 else 0):+.1f}%",
-                "KG / Hora": round(_df_resumo_all["KG / Hora"].mean(), 2),
-                "KG / Dia":  round(_df_resumo_all["KG / Dia"].mean(), 1),
-                "KG / Mês*": int(_df_resumo_all["KG / Mês*"].mean()),
-                "Gap KG/Mês*": f"{int(_gap_total):+,}", "Melhor ref.": "―",
-            }
-            _df_resumo_all = pd.concat(
-                [_df_resumo_all, pd.DataFrame([_tot_all])], ignore_index=True
-            )
-            st.dataframe(_df_resumo_all, use_container_width=True, hide_index=True)
+            _df_criticos = _df_resumo_all[_df_resumo_all["Semáforo"] == "🔴"].reset_index(drop=True)
+            if _df_criticos.empty:
+                st.success("✅ Nenhum operador crítico no período — todos dentro de 25% do melhor em cada máquina.")
+            else:
+                st.dataframe(_df_criticos, use_container_width=True, hide_index=True)
 
     else:
         # ── Visão por máquina específica ─────────────────────────────────────
