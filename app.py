@@ -1512,11 +1512,15 @@ with aba9:
                 lambda v: f"-{v:,.0f}" if v > 0 else "—"
             )
 
-            # ── Cards: melhor operador por turno (ou top-3 se turno filtrado) ───────
+            # ── Cards: operador com mais dias por turno (ou top-3 se turno filtrado) ─
             _med_cmp = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
             if _turno_cmp == "Todos os turnos":
-                # _r_cmp já está ordenado por KG/Hora desc → drop_duplicates mantém o melhor de cada turno
-                _cards_idx = _r_cmp.drop_duplicates(subset="Turno").index
+                # 1 card por turno → quem mais trabalhou nessa máquina no período
+                _cards_idx = (
+                    _r_cmp.sort_values("Dias na Máq.", ascending=False)
+                    .drop_duplicates(subset="Turno")
+                    .index
+                )
                 _cards_df  = _r_cmp.loc[_cards_idx].reset_index(drop=True)
                 _rest_df   = _r_cmp.drop(index=_cards_idx).reset_index(drop=True)
             else:
