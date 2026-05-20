@@ -314,7 +314,30 @@ st.success(
     f"{df['Operador'].nunique()} operador(es)"
 )
 
-aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8 = st.tabs([
+# ── Configuração de turnos (persiste em arquivo JSON) ─────────────────────────
+import json, os
+_TURNOS_CFG_PATH = os.path.join(os.path.dirname(__file__), "turnos_config.json")
+
+def _carregar_cfg_turnos() -> dict:
+    if os.path.exists(_TURNOS_CFG_PATH):
+        try:
+            with open(_TURNOS_CFG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _salvar_cfg_turnos(cfg: dict):
+    with open(_TURNOS_CFG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+_turnos_cfg = _carregar_cfg_turnos()
+
+# Aplica overrides de turno ao dataframe
+for _op_cfg, _turno_cfg in _turnos_cfg.items():
+    df.loc[df["Operador"] == _op_cfg, "Turno"] = _turno_cfg
+
+aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8, aba_turnos = st.tabs([
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
@@ -324,6 +347,7 @@ aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8 = st.tabs([
     "📅 KG / Dia",
     "📊 Resumo Geral",
     "📋 Dados Brutos",
+    "⚙️ Alocação de Turnos",
 ])
 
 
@@ -1091,22 +1115,32 @@ with aba9:
     st.header("🎯 Comparativo Justo por Máquina")
     st.caption(
         f"Compara operadores que trabalharam na mesma máquina por pelo menos **{_MIN_DIAS} dias** "
-        "(≈ 1 semana). Base justa: mesmo equipamento, mesmo mix de material ao longo do tempo."
+        "(≈ 1 semana). Base justa: mesmo equipamento, mesmo turno, mesmo mix de material."
     )
 
-    # ── Seletor de máquina ────────────────────────────────────────────────────
-    _TODAS = "🏭 Todas as máquinas"
-    _maqs_disp = [_TODAS] + sorted(df["Máquina"].unique())
-    _maq_cmp = st.selectbox(
+    # ── Seletores de máquina e turno ─────────────────────────────────────────
+    _TODAS   = "🏭 Todas as máquinas"
+    _TURNOS_DISP = ["Todos os turnos"] + sorted(df["Turno"].unique())
+    _col_maq_sel, _col_turno_sel = st.columns([3, 1])
+    _maq_cmp = _col_maq_sel.selectbox(
         "Selecione a máquina:",
-        _maqs_disp,
+        [_TODAS] + sorted(df["Máquina"].unique()),
         format_func=lambda m: m[:80],
         key="sel_maq_cmp",
     )
+    _turno_cmp = _col_turno_sel.selectbox(
+        "Turno:",
+        _TURNOS_DISP,
+        key="sel_turno_cmp",
+    )
 
     # ── Visão consolidada — Todas as máquinas ────────────────────────────────
+    # Aplica filtro de turno ao dataframe base desta aba
+    _df_cmp_base = df if _turno_cmp == "Todos os turnos" else df[df["Turno"] == _turno_cmp]
+    _turno_label = "" if _turno_cmp == "Todos os turnos" else f" — {_turno_cmp}"
+
     if _maq_cmp == _TODAS:
-        st.subheader("📊 Impacto consolidado — Todas as máquinas")
+        st.subheader(f"📊 Impacto consolidado — Todas as máquinas{_turno_label}")
         st.caption(f"Considera apenas operadores com ≥ {_MIN_DIAS} dias em cada máquina.")
 
         _criticos_total = 0
@@ -1120,8 +1154,8 @@ with aba9:
         _linhas_resumo = []
         _por_maquina = []   # resumo por máquina para cards individuais
 
-        for _maq_iter in sorted(df["Máquina"].unique()):
-            _df_it = df[df["Máquina"] == _maq_iter]
+        for _maq_iter in sorted(_df_cmp_base["Máquina"].unique()):
+            _df_it = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_iter]
             _dias_it = _df_it.groupby("Operador")["Data"].nunique()
             _ops_it = _dias_it[_dias_it >= _MIN_DIAS].index.tolist()
             if not _ops_it:
@@ -1234,7 +1268,7 @@ with aba9:
         # ── Linha 2: total geral do relatório + ganho potencial ─────────────
         # Usa o total real completo do relatório (todos os operadores/máquinas)
         # e aplica o % de ganho calculado sobre os operadores comparáveis
-        _total_relatorio   = df["Peso (KG)"].sum()
+        _total_relatorio   = _df_cmp_base["Peso (KG)"].sum()
         _pct_gp            = ((_proj_periodo_total - _real_periodo_total) / _real_periodo_total * 100) if _real_periodo_total > 0 else 0
         _projetado_total   = _total_relatorio * (1 + _pct_gp / 100)
         _ganho_real        = _projetado_total - _total_relatorio
@@ -1283,7 +1317,7 @@ with aba9:
 
     else:
         # ── Visão por máquina específica ─────────────────────────────────────
-        _df_maq_c = df[df["Máquina"] == _maq_cmp].copy()
+        _df_maq_c = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp].copy()
 
         # Dias por operador nessa máquina
         _dias_op_maq = _df_maq_c.groupby("Operador")["Data"].nunique()
@@ -1517,7 +1551,7 @@ with aba9:
             _pct_ganho_per = (_proj_per_maq - _real_per_maq) / _real_per_maq * 100 if _real_per_maq > 0 else 0
 
             # Total real da máquina = toda a produção dela no período (sem filtro de dias)
-            _total_maq_relatorio = df[df["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
+            _total_maq_relatorio = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
             _projetado_maq       = _total_maq_relatorio * (1 + _pct_ganho_per / 100)
             _ganho_real_maq      = _projetado_maq - _total_maq_relatorio
 
@@ -1848,6 +1882,84 @@ with aba8:
     st.dataframe(df_exib, use_container_width=True, hide_index=True)
     csv = df_exib.to_csv(index=False).encode("utf-8")
     st.download_button(label="📥 Baixar CSV", data=csv, file_name="producao_polimpress.csv", mime="text/csv")
+
+
+# ── Aba Turnos: Alocação de Turnos ───────────────────────────────────────────
+with aba_turnos:
+    st.header("⚙️ Alocação de Turnos por Operador")
+    st.caption(
+        "Configure o turno de cada operador. "
+        "O comparativo por máquina usará essa informação para comparar apenas operadores do **mesmo turno**."
+    )
+
+    _OPCOES_TURNO = ["Turno 1", "Turno 2", "Turno 3"]
+
+    # Monta tabela de operadores únicos com turno atual
+    _ops_lista = (
+        df.groupby("Operador")["Nome Curto"].first().reset_index()
+        .sort_values("Nome Curto")
+    )
+    _ops_lista["Turno Atual"] = _ops_lista["Operador"].map(
+        lambda op: df[df["Operador"] == op]["Turno"].iloc[0]
+    )
+    _ops_lista["Turno Configurado"] = _ops_lista["Operador"].map(
+        lambda op: _turnos_cfg.get(op, _ops_lista.loc[_ops_lista["Operador"] == op, "Turno Atual"].iloc[0])
+    )
+
+    st.info(
+        "📋 A coluna **Turno Atual** mostra o que foi lido do PDF. "
+        "A coluna **Turno Configurado** é o que será usado nas análises. "
+        "Altere abaixo e clique em **Salvar configuração**."
+    )
+
+    # Editor interativo
+    _cols_edit = st.columns([3, 2, 2])
+    _cols_edit[0].markdown("**Operador**")
+    _cols_edit[1].markdown("**Turno do PDF**")
+    _cols_edit[2].markdown("**Definir turno**")
+
+    _novos_turnos = {}
+    for _, _row in _ops_lista.iterrows():
+        _c1, _c2, _c3 = st.columns([3, 2, 2])
+        _c1.write(_row["Nome Curto"])
+        _c2.write(_row["Turno Atual"])
+        _turno_sel = _c3.selectbox(
+            label="turno",
+            options=_OPCOES_TURNO,
+            index=_OPCOES_TURNO.index(_row["Turno Configurado"])
+                  if _row["Turno Configurado"] in _OPCOES_TURNO else 0,
+            key=f"turno_{_row['Operador']}",
+            label_visibility="collapsed",
+        )
+        _novos_turnos[_row["Operador"]] = _turno_sel
+
+    st.divider()
+    _col_btn1, _col_btn2 = st.columns([1, 4])
+    if _col_btn1.button("💾 Salvar configuração", type="primary"):
+        _salvar_cfg_turnos(_novos_turnos)
+        st.success("✅ Configuração salva! Recarregue os PDFs para aplicar nas análises.")
+        st.rerun()
+
+    if _col_btn2.button("🔄 Resetar para padrão do PDF"):
+        _salvar_cfg_turnos({})
+        st.success("✅ Configuração resetada. Turnos voltaram ao padrão do PDF.")
+        st.rerun()
+
+    st.divider()
+    st.subheader("📊 Resumo por turno")
+    _resumo_turno = (
+        df.groupby("Turno")
+        .agg(
+            Operadores=("Operador", "nunique"),
+            Total_KG=("Peso (KG)", "sum"),
+            Apontamentos=("Cód Item", "count"),
+        )
+        .reset_index()
+        .sort_values("Turno")
+        .rename(columns={"Total_KG": "Total KG", "Apontamentos": "Apontamentos"})
+    )
+    _resumo_turno["% do Total"] = (_resumo_turno["Total KG"] / _resumo_turno["Total KG"].sum() * 100).round(1).astype(str) + "%"
+    st.dataframe(_resumo_turno, use_container_width=True, hide_index=True)
 
 
 # ── Aba 5: Evolução Operador ──────────────────────────────────────────────────
