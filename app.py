@@ -1399,27 +1399,71 @@ with aba9:
             if _df_atencao.empty:
                 st.success("✅ Nenhum operador em atenção no período — todos dentro de 10% do melhor em cada máquina.")
             else:
-                # Linha TOTAL GERAL — soma dos operadores em atenção
-                _gap_atencao  = _df_resumo_all[_df_resumo_all["Semáforo"].isin(["🔴", "🟡"])]["Gap no período"] \
-                    .str.replace(",", "").str.replace("+", "").apply(
-                        lambda v: int(v) if v not in ("—", "―", "") else 0
-                    ).sum()
+                # ── Linha: operadores no nível (🟢) agrupados ────────────────
+                _df_verdes    = _df_resumo_all[_df_resumo_all["Semáforo"] == "🟢"]
+                _n_verdes     = len(_df_verdes)
+                _kg_verdes    = int(_df_verdes["KG no período"].sum())
+                _proj_verdes  = int(_df_verdes["Projetado KG"].sum())
+
+                # ── Linha: não analisados (< 5 dias na máquina) ──────────────
+                _kg_nao_anal  = round(_total_relatorio - _real_periodo_total, 1)
+                _n_nao_anal   = (_df_cmp_base["Operador"].nunique()
+                                 - _df_resumo_all["Operador"].nunique())
+
+                _row_verdes = {
+                    "Máquina":        "―",
+                    "Operador":       f"✅ No nível do melhor ({_n_verdes} op.)",
+                    "Turno":          "―",
+                    "Semáforo":       "🟢",
+                    "vs Melhor":      "―",
+                    "KG / Hora":      "―",
+                    "KG / Dia":       "―",
+                    "KG no período":  _kg_verdes,
+                    "Gap no período": "—",
+                    "Gap / Dia":      "—",
+                    "Projetado KG":   _proj_verdes,
+                    "Melhor ref.":    "―",
+                }
+                _row_nao_anal = {
+                    "Máquina":        "―",
+                    "Operador":       f"⚙️ Outros {_n_nao_anal} op. (< {_MIN_DIAS} dias na máq.)",
+                    "Turno":          "―",
+                    "Semáforo":       "⚙️",
+                    "vs Melhor":      "―",
+                    "KG / Hora":      "―",
+                    "KG / Dia":       "―",
+                    "KG no período":  _kg_nao_anal,
+                    "Gap no período": "—",
+                    "Gap / Dia":      "—",
+                    "Projetado KG":   _kg_nao_anal,
+                    "Melhor ref.":    "―",
+                }
+
+                # ── Linha TOTAL GERAL — bate com os cards ────────────────────
                 _row_total_cons = {
                     "Máquina":        "―",
                     "Operador":       "TOTAL GERAL",
                     "Turno":          "―",
                     "Semáforo":       "📊",
                     "vs Melhor":      "―",
-                    "KG / Hora":      round(_df_atencao["KG / Hora"].mean(), 2),
-                    "KG / Dia":       round(_df_atencao["KG / Dia"].mean(), 1),
-                    "KG no período":  int(_df_atencao["KG no período"].sum()),
-                    "Gap no período": f"{_gap_atencao:+,}",
+                    "KG / Hora":      "―",
+                    "KG / Dia":       "―",
+                    "KG no período":  int(round(_total_relatorio)),   # ← bate com card 📦
+                    "Gap no período": f"-{int(_gap_total):,}",        # ← bate com card 📉
                     "Gap / Dia":      "―",
-                    "Projetado KG":   int(_df_atencao["Projetado KG"].sum()),
+                    "Projetado KG":   int(round(_projetado_total)),   # ← bate com card 🚀
                     "Melhor ref.":    "―",
                 }
+
+                _extras = []
+                if _n_verdes > 0:
+                    _extras.append(pd.DataFrame([_row_verdes]))
+                if _kg_nao_anal > 0:
+                    _extras.append(pd.DataFrame([_row_nao_anal]))
+                _extras.append(pd.DataFrame([_row_total_cons]))
+
                 _df_atencao_final = pd.concat(
-                    [_df_atencao, pd.DataFrame([_row_total_cons])],
+                    [_df_atencao] + _extras,
                     ignore_index=True,
                 )
                 _altura_atencao = 38 + len(_df_atencao_final) * 35 + 2
