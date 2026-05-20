@@ -349,11 +349,15 @@ def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
     turno_por_op  = df_in.groupby("Operador")["Turno"].first()
     nome_curto_op = df_in.groupby("Operador")["Nome Curto"].first()
 
+    # Total_UN: apenas itens com unidade UN (não mistura metros, KG de matéria, etc.)
+    _qtd_un_por_op = (
+        df_in[df_in["Unidade"] == "UN"]
+        .groupby("Operador")["Qtd (UN)"].sum()
+    )
     r = (
         df_in.groupby("Operador")
         .agg(
             Total_KG=("Peso (KG)", "sum"),
-            Total_UN=("Qtd (UN)", "sum"),
             Apontamentos=("Cód Item", "count"),
             Produtos_Distintos=("Cód Item", "nunique"),
             Peso_Medio_g=("Peso Médio/UN (g)", "mean"),
@@ -361,6 +365,7 @@ def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
         .join(turno_por_op).join(nome_curto_op)
         .reset_index()
     )
+    r["Total_UN"]            = r["Operador"].map(_qtd_un_por_op).fillna(0).astype(int)
     r["Dias Trabalhados"]    = r["Operador"].map(dias_op)
     r["Horas Trabalhadas"]   = r["Operador"].map(horas_op).round(1)
     r["KG / Hora"]           = (r["Total_KG"] / r["Horas Trabalhadas"]).round(2)
@@ -375,11 +380,14 @@ def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
 resumo = calcular_resumo_operadores(df)
 
 # Resumo de máquinas (global)
+_df_un_g = df[df["Unidade"] == "UN"].groupby(["Máquina", "Nome Curto", "Turno"])["Qtd (UN)"].sum().rename("Total_UN")
 _df_maq_op_dia_g = (
     df.groupby(["Máquina", "Nome Curto", "Turno"])
-    .agg(Total_KG=("Peso (KG)", "sum"), Total_UN=("Qtd (UN)", "sum"), Dias=("Data", "nunique"))
+    .agg(Total_KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"))
     .reset_index()
+    .join(_df_un_g, on=["Máquina", "Nome Curto", "Turno"])
 )
+_df_maq_op_dia_g["Total_UN"] = _df_maq_op_dia_g["Total_UN"].fillna(0).astype(int)
 _df_maq_op_dia_g["KG / Dia (op)"] = (_df_maq_op_dia_g["Total_KG"] / _df_maq_op_dia_g["Dias"]).round(1)
 
 _melhor_por_maq_g = (
@@ -389,18 +397,20 @@ _melhor_por_maq_g = (
     .rename(columns={"Nome Curto": "Melhor Op", "KG / Dia (op)": "Melhor KG/Dia"})
 )
 
+_df_un_maq_g = df[df["Unidade"] == "UN"].groupby("Máquina")["Qtd (UN)"].sum().rename("Total_UN")
 df_maq_resumo_g = (
     df.groupby("Máquina")
     .agg(
         Total_KG=("Peso (KG)", "sum"),
-        Total_UN=("Qtd (UN)", "sum"),
         Dias_Ativas=("Data", "nunique"),
         Apontamentos=("Cód Item", "count"),
         Operadores=("Nome Curto", lambda x: ", ".join(sorted(x.unique()))),
     )
     .reset_index()
+    .join(_df_un_maq_g, on="Máquina")
     .join(_melhor_por_maq_g, on="Máquina")
 )
+df_maq_resumo_g["Total_UN"] = df_maq_resumo_g["Total_UN"].fillna(0).astype(int)
 df_maq_resumo_g["KG / Dia"] = (df_maq_resumo_g["Total_KG"] / df_maq_resumo_g["Dias_Ativas"]).round(1)
 df_maq_resumo_g["UN / Dia"] = (df_maq_resumo_g["Total_UN"] / df_maq_resumo_g["Dias_Ativas"]).round(0)
 df_maq_resumo_g = df_maq_resumo_g.sort_values("KG / Dia", ascending=False).reset_index(drop=True)
@@ -1654,17 +1664,19 @@ with aba7:
     # ── Tabela de Operadores ──────────────────────────────────────────────────
     st.subheader("👷 Produção por Operador")
 
+    _op_un_rg = df[df["Unidade"] == "UN"].groupby("Operador")["Qtd (UN)"].sum().rename("Total_UN")
     op_resumo = (
         df.groupby(["Operador", "Nome Curto", "Turno"])
         .agg(
             Total_KG=("Peso (KG)", "sum"),
-            Total_UN=("Qtd (UN)", "sum"),
             Apontamentos=("Cód Item", "count"),
         )
         .reset_index()
+        .join(_op_un_rg, on="Operador")
         .sort_values("Total_KG", ascending=False)
         .reset_index(drop=True)
     )
+    op_resumo["Total_UN"] = op_resumo["Total_UN"].fillna(0).astype(int)
     op_resumo.index = op_resumo.index + 1  # começa em 1
 
     # Linha de total
@@ -1673,7 +1685,7 @@ with aba7:
         "Nome Curto": "TOTAL",
         "Turno": "",
         "Total_KG": op_resumo["Total_KG"].sum(),
-        "Total_UN": op_resumo["Total_UN"].sum(),
+        "Total_UN": int(op_resumo["Total_UN"].sum()),
         "Apontamentos": op_resumo["Apontamentos"].sum(),
     }])
     total_op.index = [""]
@@ -1686,7 +1698,7 @@ with aba7:
     st.dataframe(
         df_op_exib.rename(columns={
             "Total_KG": "Total KG",
-            "Total_UN": "Total UN",
+            "Total_UN": "Total UN (peças)",
         }),
         use_container_width=True,
     )
@@ -1700,20 +1712,21 @@ with aba7:
         df.groupby("Máquina")
         .agg(
             Total_KG=("Peso (KG)", "sum"),
-            Total_UN=("Qtd (UN)", "sum"),
             Apontamentos=("Cód Item", "count"),
             Operadores=("Nome Curto", lambda x: len(x.unique())),
         )
         .reset_index()
+        .join(df[df["Unidade"] == "UN"].groupby("Máquina")["Qtd (UN)"].sum().rename("Total_UN"), on="Máquina")
         .sort_values("Total_KG", ascending=False)
         .reset_index(drop=True)
     )
+    maq_resumo["Total_UN"] = maq_resumo["Total_UN"].fillna(0).astype(int)
     maq_resumo.index = maq_resumo.index + 1
 
     total_maq = pd.DataFrame([{
         "Máquina": "─── TOTAL ───",
         "Total_KG": maq_resumo["Total_KG"].sum(),
-        "Total_UN": maq_resumo["Total_UN"].sum(),
+        "Total_UN": int(maq_resumo["Total_UN"].sum()),
         "Apontamentos": maq_resumo["Apontamentos"].sum(),
         "Operadores": df["Nome Curto"].nunique(),
     }])
@@ -1727,7 +1740,7 @@ with aba7:
     st.dataframe(
         df_maq_exib.rename(columns={
             "Total_KG": "Total KG",
-            "Total_UN": "Total UN",
+            "Total_UN": "Total UN (peças)",
             "Operadores": "Nº Operadores",
         }),
         use_container_width=True,
@@ -1736,8 +1749,12 @@ with aba7:
     # ── Totalizador geral ─────────────────────────────────────────────────────
     quebra_pagina()
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("⚖️ Total KG (lido)", f"{df['Peso (KG)'].sum():,.3f} KG")
-    c2.metric("🔢 Total UN", f"{df['Qtd (UN)'].sum():,.0f} UN")
+    _total_un_cards = int(df[df["Unidade"] == "UN"]["Qtd (UN)"].sum())
+    _total_mt_cards = df[df["Unidade"] == "MT"]["Qtd (UN)"].sum()
+    c1.metric("⚖️ Total KG", f"{df['Peso (KG)'].sum():,.3f} KG")
+    c2.metric("🔢 Total peças (UN)", f"{_total_un_cards:,}",
+              delta=f"+ {_total_mt_cards:,.1f} m em MT" if _total_mt_cards > 0 else None,
+              delta_color="off")
     c3.metric("👷 Operadores", df["Operador"].nunique())
     c4.metric("🏭 Máquinas", df["Máquina"].nunique())
 
