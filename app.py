@@ -48,6 +48,9 @@ st.markdown("""
 - 📋 **Dados Brutos** — todos os registros extraídos dos PDFs com filtros por operador, turno e máquina, exportável em CSV.
 """)
 
+# Captura qualquer unidade: UN (unidade), KG (kilograma), MT (metro), etc.
+_RE_ITEM_GERAL  = re.compile(r"^(\d+)\s*-\s*(.*?)\s+([\d\.]+,\d+)\s*(UN|KG|MT|M2|PC|CX|FD|RL|PT)\s+([\d\.]+,\d+)\s*$")
+# Fallback legado (mantido por compatibilidade)
 _RE_ITEM_UN     = re.compile(r"^(\d+)\s*-\s*(.*)\s+([\d\.]+,\d+)\s*UN\s+([\d\.]+,\d+)\s*$")
 _RE_ITEM_KG     = re.compile(r"^(\d+)\s*-\s*(.*)\s+([\d\.]+,\d+)\s*KG\s+([\d\.]+,\d+)\s*$")
 _RE_USUARIO     = re.compile(r"[Uu]su.{0,2}rio:\s*\d+\s*-\s*(.+)")
@@ -246,14 +249,14 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
                 else:
                     continue
 
-                m = _RE_ITEM_UN.match(linha) or _RE_ITEM_KG.match(linha)
+                m = _RE_ITEM_GERAL.match(linha)
                 if not m:
                     continue
 
-                unidade = "UN" if _RE_ITEM_UN.match(linha) else "KG"
+                unidade = m.group(4)   # UN, KG, MT, etc.
                 try:
                     quantidade = _parse_br_float(m.group(3))
-                    peso       = _parse_br_float(m.group(4))
+                    peso       = _parse_br_float(m.group(5))
                 except ValueError:
                     continue
 
@@ -1742,11 +1745,26 @@ with aba7:
     st.divider()
     st.subheader("🔍 Conferência com o relatório PDF")
     st.caption("Digite o **Total Geral de KG** do seu relatório PDF para conferir se todos os registros foram lidos corretamente.")
-    _total_pdf = st.number_input(
-        "Total KG do relatório (ex: 191638.346)",
-        min_value=0.0, value=0.0, step=0.001, format="%.3f",
-        key="total_pdf_input",
+    _inp_pdf = st.text_input(
+        "Total KG do relatório (formato do PDF, ex: 191.638,346 ou 191638.346)",
+        value="", key="total_pdf_input",
+        placeholder="191.638,346",
     )
+    # Aceita tanto formato BR (191.638,346) quanto americano (191638.346)
+    _total_pdf = 0.0
+    if _inp_pdf.strip():
+        try:
+            _s = _inp_pdf.strip()
+            if "," in _s and "." in _s:
+                _total_pdf = float(_s.replace(".", "").replace(",", "."))
+            elif "," in _s:
+                _total_pdf = float(_s.replace(",", "."))
+            else:
+                _total_pdf = float(_s.replace(".", ""))
+                if _total_pdf < 1000:   # provavelmente decimal americano
+                    _total_pdf = float(_s)
+        except ValueError:
+            st.warning("⚠️ Formato inválido. Use: 191.638,346 ou 191638.346")
     if _total_pdf > 0:
         _total_lido = df["Peso (KG)"].sum()
         _diff = _total_lido - _total_pdf
