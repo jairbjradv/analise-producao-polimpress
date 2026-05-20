@@ -1206,17 +1206,17 @@ with aba9:
         )
 
         st.divider()
-        st.subheader("🔴 Operadores críticos por máquina")
-        st.caption("Somente operadores com ≥ 5 dias na máquina e semáforo 🔴 (mais de 25% abaixo do melhor).")
+        st.subheader("⚠️ Operadores em atenção por máquina")
+        st.caption("🔴 mais de 25% abaixo do melhor  ·  🟡 entre 10% e 25% abaixo do melhor")
         if _linhas_resumo:
             _df_resumo_all = pd.DataFrame(_linhas_resumo).sort_values(
                 ["Máquina", "KG / Hora"], ascending=[True, False]
             )
-            _df_criticos = _df_resumo_all[_df_resumo_all["Semáforo"] == "🔴"].reset_index(drop=True)
-            if _df_criticos.empty:
-                st.success("✅ Nenhum operador crítico no período — todos dentro de 25% do melhor em cada máquina.")
+            _df_atencao = _df_resumo_all[_df_resumo_all["Semáforo"].isin(["🔴", "🟡"])].reset_index(drop=True)
+            if _df_atencao.empty:
+                st.success("✅ Nenhum operador em atenção no período — todos dentro de 10% do melhor em cada máquina.")
             else:
-                st.dataframe(_df_criticos, use_container_width=True, hide_index=True)
+                st.dataframe(_df_atencao, use_container_width=True, hide_index=True)
 
     else:
         # ── Visão por máquina específica ─────────────────────────────────────
