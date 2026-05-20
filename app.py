@@ -1310,6 +1310,8 @@ with aba9:
                 _real_periodo_total  += _kg_real_op
                 _proj_periodo_total  += _kg_pot_op
 
+                _dias_op_it = _dias_it_v.get(_op_key, 1)
+                _gap_dia_op = round(_gap_op / _dias_op_it, 1) if _dias_op_it > 0 else 0.0
                 _linhas_resumo.append({
                     "Máquina":        _maq_iter.split(" - ")[0],
                     "Operador":       _row["Nome Curto"],
@@ -1320,6 +1322,7 @@ with aba9:
                     "KG / Dia":       _row["KG/Dia"],
                     "KG no período":  int(_kg_real_op),
                     "Gap no período": f"{int(-_gap_op):+,}" if _gap_op > 0 else "—",
+                    "Gap / Dia":      f"-{int(_gap_dia_op):,}" if _gap_dia_op > 0 else "—",
                     "Projetado KG":   int(_kg_pot_op),
                     "Melhor ref.":    _melhor_nome,
                 })
@@ -1504,6 +1507,10 @@ with aba9:
                 lambda v: f"-{v:,.0f}" if v > 0 else "—"
             )
             _r_cmp["Projetado KG"]    = (_r_cmp["Total_KG"] + _r_cmp["Gap Período"]).round(1)
+            _r_cmp["Gap / Dia"]       = (_r_cmp["Gap Período"] / _r_cmp["Dias na Máq."]).round(1)
+            _r_cmp["Gap / Dia fmt"]   = _r_cmp["Gap / Dia"].apply(
+                lambda v: f"-{v:,.0f}" if v > 0 else "—"
+            )
 
             # ── Cards: melhor operador por turno (ou top-3 se turno filtrado) ───────
             _med_cmp = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
@@ -1601,7 +1608,7 @@ with aba9:
 
             _df_exib_cmp = _r_cmp[[
                 "Semáforo", "Nome Curto", "Turno", "Dias na Máq.", "Horas",
-                "KG / Hora", "KG / Dia", "vs Melhor", "Gap Período fmt",
+                "KG / Hora", "KG / Dia", "vs Melhor", "Gap Período fmt", "Gap / Dia fmt",
                 "Itens", "Total_KG", "Projetado KG", "Total_UN",
             ]].rename(columns={
                 "Nome Curto":      "Operador",
@@ -1609,6 +1616,7 @@ with aba9:
                 "Projetado KG":    "Projetado KG",
                 "Total_UN":        "Total UN",
                 "Gap Período fmt": "Gap no período",
+                "Gap / Dia fmt":   "Gap / Dia",
             }).copy()
 
             # Linha de operadores excluídos (< 5 dias) agrupados em uma só
@@ -1626,9 +1634,10 @@ with aba9:
                 "KG / Dia":       "―",
                 "vs Melhor":      "―",
                 "Gap no período": "―",
+                "Gap / Dia":      "―",
                 "Itens":          "―",
                 "Total KG":       round(_kg_outros, 1),
-                "Projetado KG":   round(_kg_outros, 1),  # sem dados suficientes → mantém real
+                "Projetado KG":   round(_kg_outros, 1),
                 "Total UN":       _un_outros,
             }
 
@@ -1651,6 +1660,7 @@ with aba9:
                 "KG / Dia":       round(_r_cmp["KG / Dia"].mean(), 1),
                 "vs Melhor":      f"{((_r_cmp['KG / Hora'].mean()-_melhor_h)/_melhor_h*100):+.1f}%",
                 "Gap no período": f"-{_gap_maq_periodo:,.0f}",   # ← bate com card "KG deixados"
+                "Gap / Dia":      f"-{(_gap_maq_periodo / _r_cmp['Dias na Máq.'].sum()):,.0f}" if _r_cmp['Dias na Máq.'].sum() > 0 else "―",
                 "Itens":          "―",
                 "Total KG":       round(_total_maq_relatorio, 1), # ← bate com card "Total produzido"
                 "Projetado KG":   _projetado_maq,                 # ← bate com card "Projetado"
