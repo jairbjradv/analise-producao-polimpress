@@ -1206,24 +1206,43 @@ with aba9:
                 elif _sem == "🟡":
                     _amarelos_total += 1
 
-                # Gap baseado em KG/hora × horas reais do operador no período
-                # (justo entre turnos — cada um só tem as horas que efetivamente trabalhou)
-                _horas_op = _horas_it.get(_row["Operador"], 0)
-                _kg_potencial_op = _melhor_h_it * _horas_op   # se fosse o melhor
-                _kg_real_op      = _row["Total_KG"]            # o que produziu de fato
-                _gap_op          = max(0, _kg_potencial_op - _kg_real_op)
+                # ── Gap dia a dia ─────────────────────────────────────────────
+                # Para cada dia que o operador trabalhou nesta máquina:
+                #   gap_dia = max(0, melhor_KG/h × horas_do_dia - KG_produzido_no_dia)
+                # Só conta os dias em que ficou abaixo do melhor.
+                # Dias em outras máquinas não são afetados.
+                _op_key  = _row["Operador"]
+                _ts_op   = _df_it_v[_df_it_v["Operador"] == _op_key]["Turno"].iloc[0]
+                _fmt_op  = _df_it_v[_df_it_v["Operador"] == _op_key]["Formato"].iloc[0]
+                _kg_real_op = _row["Total_KG"]
+
+                if _fmt_op == "diario":
+                    # Agrupa KG produzido por dia nesta máquina
+                    _daily = (
+                        _df_it_v[_df_it_v["Operador"] == _op_key]
+                        .groupby("Data_dt")["Peso (KG)"].sum()
+                    )
+                    _gap_op = 0.0
+                    for _dt, _kg_dia in _daily.items():
+                        _h_dia = horas_turno(_ts_op, _dt)
+                        _gap_op += max(0.0, _melhor_h_it * _h_dia - _kg_dia)
+                else:
+                    # Formato quinzenal: sem dado diário → usa período completo
+                    _horas_op = _horas_it.get(_op_key, 0)
+                    _gap_op   = max(0.0, _melhor_h_it * _horas_op - _kg_real_op)
+
+                _kg_pot_op = _kg_real_op + _gap_op  # o que poderia ter produzido
 
                 _gap_total           += _gap_op
-                _potencial_total     += _kg_potencial_op
+                _potencial_total     += _kg_pot_op
                 _producao_real_total += _kg_real_op
                 _total_ops_analisados += 1
                 _gap_maq  += _gap_op
-                _pot_maq  += _kg_potencial_op
+                _pot_maq  += _kg_pot_op
                 _real_maq += _kg_real_op
                 _real_periodo_total  += _kg_real_op
-                _proj_periodo_total  += _kg_potencial_op
+                _proj_periodo_total  += _kg_pot_op
 
-                _gap_kg_h = (_row["KG/Hora"] - _melhor_h_it) * _horas_op  # gap em KG no período
                 _linhas_resumo.append({
                     "Máquina":        _maq_iter.split(" - ")[0],
                     "Operador":       _row["Nome Curto"],
@@ -1233,7 +1252,7 @@ with aba9:
                     "KG / Hora":      _row["KG/Hora"],
                     "KG / Dia":       _row["KG/Dia"],
                     "KG no período":  int(_kg_real_op),
-                    "Gap no período": f"{int(_gap_kg_h):+,}",
+                    "Gap no período": f"{int(-_gap_op):+,}",
                     "Melhor ref.":    _melhor_nome,
                 })
 
