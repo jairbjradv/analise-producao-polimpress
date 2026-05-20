@@ -1241,10 +1241,17 @@ with aba9:
                 "r_it":      _r_it,   # dataframe de operadores desta máquina
             })
 
-        # Cards consolidados
+        # ── Cálculo unificado do ganho potencial ─────────────────────────────
+        # Usa o total real do relatório + % de ganho dos operadores comparáveis
+        # (mesma base para todos os cards — evita inconsistência)
+        _total_relatorio = _df_cmp_base["Peso (KG)"].sum()
+        _pct_gp          = ((_proj_periodo_total - _real_periodo_total) / _real_periodo_total * 100) if _real_periodo_total > 0 else 0
+        _projetado_total = _total_relatorio * (1 + _pct_gp / 100)
+        _ganho_real      = _projetado_total - _total_relatorio
+
+        # Cards consolidados — linha 1
         _pct_atencao = ((_criticos_total + _amarelos_total) / _total_ops_analisados * 100) if _total_ops_analisados > 0 else 0
         _pct_gap     = (_gap_total / _producao_real_total * 100) if _producao_real_total > 0 else 0
-        _pct_ganho   = ((_potencial_total - _producao_real_total) / _producao_real_total * 100) if _producao_real_total > 0 else 0
 
         _c1, _c2, _c3 = st.columns(3)
         _c1.metric(
@@ -1260,20 +1267,13 @@ with aba9:
             delta_color="normal",
         )
         _c3.metric(
-            "🏭 Potencial se todos no melhor nível",
-            f"{_potencial_total:,.0f} KG/mês",
-            delta=f"Atual: {_producao_real_total:,.0f} KG/mês  (+{_pct_ganho:.1f}%)",
+            "🚀 Projetado se todos no nível do melhor",
+            f"{_projetado_total:,.0f} KG",
+            delta=f"+{_ganho_real:,.0f} KG a mais no período (+{_pct_gp:.1f}%)",
             delta_color="normal",
         )
 
-        # ── Linha 2: total geral do relatório + ganho potencial ─────────────
-        # Usa o total real completo do relatório (todos os operadores/máquinas)
-        # e aplica o % de ganho calculado sobre os operadores comparáveis
-        _total_relatorio   = _df_cmp_base["Peso (KG)"].sum()
-        _pct_gp            = ((_proj_periodo_total - _real_periodo_total) / _real_periodo_total * 100) if _real_periodo_total > 0 else 0
-        _projetado_total   = _total_relatorio * (1 + _pct_gp / 100)
-        _ganho_real        = _projetado_total - _total_relatorio
-
+        # Cards consolidados — linha 2 (detalhamento do período)
         st.markdown("---")
         st.caption("📅 Projeção sobre o total real do relatório — se todos os operadores comparáveis atingissem o nível do melhor")
         _p1, _p2, _p3 = st.columns(3)
