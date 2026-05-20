@@ -1178,7 +1178,7 @@ with aba9:
                     _dias_it_v[_op] = len(_du)
 
             _r_it = (
-                _df_it_v.groupby(["Operador", "Nome Curto"])
+                _df_it_v.groupby(["Operador", "Nome Curto", "Turno"])
                 .agg(Total_KG=("Peso (KG)", "sum"))
                 .reset_index()
             )
