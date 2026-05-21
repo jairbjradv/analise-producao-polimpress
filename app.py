@@ -1362,6 +1362,12 @@ with aba9:
     _kg_lideres = _df_lideres_base["Peso (KG)"].sum()
     _n_lideres  = _df_lideres_base["Operador"].nunique()
 
+    # KG de hora extra (turno fora do alocado) — para reconciliação
+    _df_extra_cmp = df[df["Hora_Extra"]] if "Hora_Extra" in df.columns else pd.DataFrame()
+    if not _df_extra_cmp.empty and _turno_cmp != "Todos os turnos":
+        _df_extra_cmp = _df_extra_cmp[_df_extra_cmp["Turno_Alocado"] == _turno_cmp]
+    _kg_hora_extra_total = _df_extra_cmp["Peso (KG)"].sum() if not _df_extra_cmp.empty else 0.0
+
     if _maq_cmp == _TODAS:
         st.subheader(f"📊 Impacto consolidado — Todas as máquinas{_turno_label}")
         st.caption(f"Considera apenas operadores com ≥ {_MIN_DIAS} dias em cada máquina.")
@@ -1505,8 +1511,8 @@ with aba9:
             })
 
         # ── Cálculo unificado do ganho potencial ─────────────────────────────
-        # total inclui líderes + não analisados para bater com o relatório
-        _total_relatorio = _df_cmp_base["Peso (KG)"].sum() + _kg_lideres
+        # total inclui líderes + hora extra + não analisados para bater com PDF
+        _total_relatorio = _df_cmp_base["Peso (KG)"].sum() + _kg_lideres + _kg_hora_extra_total
         _projetado_total = _total_relatorio + _gap_total
         _ganho_real      = _projetado_total - _total_relatorio
         _pct_gp          = (_ganho_real / _total_relatorio * 100) if _total_relatorio > 0 else 0
@@ -1632,6 +1638,21 @@ with aba9:
                     "Melhor ref.":    "―",
                 }
 
+                _row_hora_extra_cons = {
+                    "Máquina":        "―",
+                    "Operador":       "⏰ Hora extra (fora do turno alocado)",
+                    "Turno":          "―",
+                    "Semáforo":       "⏰",
+                    "vs Melhor":      "―",
+                    "KG / Hora":      "―",
+                    "KG / Dia":       "―",
+                    "KG no período":  int(round(_kg_hora_extra_total)),
+                    "Gap no período": "—",
+                    "Gap / Dia":      "—",
+                    "Projetado KG":   int(round(_kg_hora_extra_total)),
+                    "Melhor ref.":    "―",
+                }
+
                 _extras = []
                 if _n_verdes > 0:
                     _extras.append(pd.DataFrame([_row_verdes]))
@@ -1639,6 +1660,8 @@ with aba9:
                     _extras.append(pd.DataFrame([_row_nao_anal]))
                 if _kg_lideres > 0:
                     _extras.append(pd.DataFrame([_row_lideres_cons]))
+                if _kg_hora_extra_total > 0:
+                    _extras.append(pd.DataFrame([_row_hora_extra_cons]))
                 _extras.append(pd.DataFrame([_row_total_cons]))
 
                 _df_atencao_final = pd.concat(
@@ -1656,6 +1679,8 @@ with aba9:
         _df_maq_lideres = _df_lideres_base[_df_lideres_base["Máquina"] == _maq_cmp]
         _kg_lid_maq     = _df_maq_lideres["Peso (KG)"].sum()
         _n_lid_maq      = _df_maq_lideres["Operador"].nunique()
+        _kg_extra_maq   = (_df_extra_cmp[_df_extra_cmp["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
+                           if not _df_extra_cmp.empty else 0.0)
 
         # Dias por operador nessa máquina
         _dias_op_maq = _df_maq_c.groupby("Operador")["Data"].nunique()
@@ -1921,14 +1946,30 @@ with aba9:
                 "Projetado KG":   round(_kg_lid_maq, 1),
                 "Total UN":       "―",
             }
+            _row_extra_maq = {
+                "Semáforo":       "⏰",
+                "Operador":       "⏰ Hora extra (fora do turno alocado)",
+                "Turno":          "―",
+                "Dias na Máq.":   "―",
+                "Horas":          "―",
+                "KG / Hora":      "―",
+                "KG / Dia":       "―",
+                "vs Melhor":      "―",
+                "Gap no período": "—",
+                "Gap / Dia":      "—",
+                "Itens":          "―",
+                "Total KG":       round(_kg_extra_maq, 1),
+                "Projetado KG":   round(_kg_extra_maq, 1),
+                "Total UN":       "―",
+            }
 
-            # Linha total geral — inclui líderes para bater com o relatório
+            # Linha total geral — inclui líderes + hora extra para bater com relatório
             _gap_maq_periodo  = _r_cmp["Gap Período"].sum()
             _real_maq_periodo = _r_cmp["Total_KG"].sum()
             _total_maq_relatorio = (_df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
-                                    + _kg_lid_maq)
-            # Projetado = soma das colunas Projetado KG (comparáveis) + kg outros + líderes
-            _projetado_maq   = round(_r_cmp["Projetado KG"].sum() + _kg_outros + _kg_lid_maq, 1)
+                                    + _kg_lid_maq + _kg_extra_maq)
+            # Projetado = comparáveis + outros + líderes + hora extra
+            _projetado_maq   = round(_r_cmp["Projetado KG"].sum() + _kg_outros + _kg_lid_maq + _kg_extra_maq, 1)
             _pct_gap_maq_per = ((_projetado_maq - _total_maq_relatorio) / _total_maq_relatorio * 100) if _total_maq_relatorio > 0 else 0
             _ganho_real_maq  = _projetado_maq - _total_maq_relatorio
 
@@ -1954,6 +1995,8 @@ with aba9:
                 _partes_tabela.append(pd.DataFrame([_row_outros]))
             if _kg_lid_maq > 0:
                 _partes_tabela.append(pd.DataFrame([_row_lideres_maq]))
+            if _kg_extra_maq > 0:
+                _partes_tabela.append(pd.DataFrame([_row_extra_maq]))
             _partes_tabela.append(pd.DataFrame([_row_total]))
 
             _df_exib_final = pd.concat(_partes_tabela, ignore_index=True)
