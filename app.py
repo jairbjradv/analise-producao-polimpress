@@ -386,6 +386,20 @@ _turno_principal = (
 )
 df["Turno"] = df["Operador"].map(_turno_principal)
 
+# ── Alocação de turnos via session_state (editada na aba 👷) ─────────────────
+if "turno_alocado" not in st.session_state:
+    st.session_state["turno_alocado"] = {}
+for _op_ss, _t_ss in _turno_principal.items():
+    if _op_ss not in st.session_state["turno_alocado"]:
+        st.session_state["turno_alocado"][_op_ss] = _t_ss
+
+df["Turno_Alocado"] = df["Operador"].map(st.session_state["turno_alocado"])
+df["Hora_Extra"]    = df["Turno"] != df["Turno_Alocado"]
+df["Turno"]         = df["Turno_Alocado"]   # turno alocado substitui o original
+
+# df_analise: somente registros no turno regular — usado por todas as abas
+df_analise = df[~df["Hora_Extra"]].copy()
+
 _turnos_no_df = sorted(df["Turno"].unique())
 _resumo_turnos = "  ·  ".join(
     f"**{t}**: {(df['Turno']==t).sum()} reg." for t in _turnos_no_df
@@ -398,7 +412,8 @@ st.success(
 if _resumo_turnos:
     st.caption(_resumo_turnos)
 
-aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8 = st.tabs([
+aba0, aba1, aba2, aba3, aba4, aba9, aba5, aba6, aba7, aba8 = st.tabs([
+    "👷 Alocação de Turnos",
     "🏆 Ranking de Operadores",
     "🏭 Ranking por Máquina",
     "⚖️ Comparativo por Item",
@@ -461,12 +476,13 @@ def calcular_resumo_operadores(df_in: pd.DataFrame) -> pd.DataFrame:
 
 
 # ── Pré-cálculos globais (reutilizados em múltiplas abas) ────────────────────
-resumo = calcular_resumo_operadores(df)
+# Usa df_analise: somente registros no turno regular (hora extra excluída)
+resumo = calcular_resumo_operadores(df_analise)
 
 # Resumo de máquinas (global)
-_df_un_g = df[df["Unidade"] == "UN"].groupby(["Máquina", "Nome Curto", "Turno"])["Qtd (UN)"].sum().rename("Total_UN")
+_df_un_g = df_analise[df_analise["Unidade"] == "UN"].groupby(["Máquina", "Nome Curto", "Turno"])["Qtd (UN)"].sum().rename("Total_UN")
 _df_maq_op_dia_g = (
-    df.groupby(["Máquina", "Nome Curto", "Turno"])
+    df_analise.groupby(["Máquina", "Nome Curto", "Turno"])
     .agg(Total_KG=("Peso (KG)", "sum"), Dias=("Data", "nunique"))
     .reset_index()
     .join(_df_un_g, on=["Máquina", "Nome Curto", "Turno"])
@@ -481,9 +497,9 @@ _melhor_por_maq_g = (
     .rename(columns={"Nome Curto": "Melhor Op", "KG / Dia (op)": "Melhor KG/Dia"})
 )
 
-_df_un_maq_g = df[df["Unidade"] == "UN"].groupby("Máquina")["Qtd (UN)"].sum().rename("Total_UN")
+_df_un_maq_g = df_analise[df_analise["Unidade"] == "UN"].groupby("Máquina")["Qtd (UN)"].sum().rename("Total_UN")
 df_maq_resumo_g = (
-    df.groupby("Máquina")
+    df_analise.groupby("Máquina")
     .agg(
         Total_KG=("Peso (KG)", "sum"),
         Dias_Ativas=("Data", "nunique"),
@@ -504,6 +520,119 @@ df_maq_resumo_g["Máquina Curta"] = (
     + df_maq_resumo_g["Máquina"].str.split(" - ").str[1:].str.join(" ").str[:22]
 )
 df_maq_resumo_g["Nº Máquina"] = df_maq_resumo_g["Máquina"].str.extract(r"^(\d+)")[0].fillna(df_maq_resumo_g["Máquina"])
+
+
+# ── Aba 0: Alocação de Turnos ────────────────────────────────────────────────
+with aba0:
+    st.header("👷 Alocação de Turnos")
+    st.caption(
+        "Defina o turno oficial de cada operador. "
+        "Produção registrada fora do turno alocado será tratada como **hora extra** "
+        "e excluída da análise de KG/h — mas reconciliada no total do relatório."
+    )
+
+    _turnos_disponiveis = sorted(df["Turno"].dropna().unique().tolist())
+
+    # Inicializa session_state com a alocação automática (turno com mais KG)
+    if "turno_alocado" not in st.session_state:
+        st.session_state["turno_alocado"] = {}
+
+    # Preenche operadores novos que ainda não estão na alocação
+    for _op, _t in _turno_principal.items():
+        if _op not in st.session_state["turno_alocado"]:
+            st.session_state["turno_alocado"][_op] = _t
+
+    st.markdown("#### Operadores detectados nos PDFs")
+    st.info(
+        "💡 O turno sugerido é o que o operador mais produziu no período. "
+        "Altere onde necessário e as demais abas refletirão a nova alocação."
+    )
+
+    # Monta tabela editável
+    _ops_lista = sorted(df["Operador"].unique())
+    _col_op, _col_t = st.columns([3, 1])
+    _col_op.markdown("**Operador**")
+    _col_t.markdown("**Turno alocado**")
+    st.divider()
+
+    for _op in _ops_lista:
+        _kg_por_turno = (
+            df[df["Operador"] == _op]
+            .groupby("Turno")["Peso (KG)"].sum()
+            .sort_values(ascending=False)
+        )
+        _detalhes = "  ·  ".join(
+            f"{t}: {kg:,.0f} KG" for t, kg in _kg_por_turno.items()
+        )
+        _col_a, _col_b = st.columns([3, 1])
+        with _col_a:
+            st.markdown(
+                f"**{nome_curto(_op)}** &nbsp; <span style='color:gray;font-size:0.85em'>{_detalhes}</span>",
+                unsafe_allow_html=True,
+            )
+        with _col_b:
+            _atual = st.session_state["turno_alocado"].get(_op, _turnos_disponiveis[0])
+            _novo  = st.selectbox(
+                label="turno",
+                options=_turnos_disponiveis,
+                index=_turnos_disponiveis.index(_atual) if _atual in _turnos_disponiveis else 0,
+                key=f"turno_sel_{_op}",
+                label_visibility="collapsed",
+            )
+            st.session_state["turno_alocado"][_op] = _novo
+
+    st.divider()
+
+    # ── Aplica alocação ao df: registros fora do turno → hora extra ───────────
+    _alocacao = st.session_state["turno_alocado"]
+    df["Turno_Alocado"] = df["Operador"].map(_alocacao)
+    df["Hora_Extra"]    = df["Turno"] != df["Turno_Alocado"]
+
+    _df_normal = df[~df["Hora_Extra"]].copy()
+    _df_extra  = df[ df["Hora_Extra"]].copy()
+
+    _kg_normal = _df_normal["Peso (KG)"].sum()
+    _kg_extra  = _df_extra["Peso (KG)"].sum()
+    _kg_total  = df["Peso (KG)"].sum()
+
+    st.markdown("#### Resumo da alocação")
+    _ca, _cb, _cc = st.columns(3)
+    _ca.metric("📦 KG turno regular", f"{_kg_normal:,.0f} KG",
+               delta=f"{_kg_normal/_kg_total*100:.1f}% do total", delta_color="off")
+    _cb.metric("⏰ KG hora extra", f"{_kg_extra:,.0f} KG",
+               delta=f"{_kg_extra/_kg_total*100:.1f}% do total", delta_color="off")
+    _cc.metric("📋 Total relatório", f"{_kg_total:,.0f} KG",
+               delta="Regular + Hora extra = total PDFs", delta_color="off")
+
+    if _kg_extra > 0:
+        st.markdown("#### ⏰ Produção em hora extra (excluída da análise)")
+        _df_extra_exib = (
+            _df_extra.groupby(["Operador", "Turno", "Turno_Alocado", "Máquina"])["Peso (KG)"]
+            .sum().reset_index()
+            .rename(columns={
+                "Turno":         "Turno registrado",
+                "Turno_Alocado": "Turno alocado",
+                "Peso (KG)":     "KG hora extra",
+            })
+            .sort_values("KG hora extra", ascending=False)
+        )
+        _df_extra_exib["Operador"] = _df_extra_exib["Operador"].apply(nome_curto)
+        _df_extra_exib["Máquina"]  = _df_extra_exib["Máquina"].apply(
+            lambda m: m.split(" - ")[0] if " - " in m else m
+        )
+        _alt_ex = 38 + len(_df_extra_exib) * 35 + 2
+        st.dataframe(_df_extra_exib, use_container_width=True, hide_index=True,
+                     height=_alt_ex)
+        st.caption(
+            f"📦 KG turno regular = **{_kg_normal:,.0f}** · "
+            f"⏰ KG hora extra = **{_kg_extra:,.0f}** · "
+            f"✅ Total = **{_kg_total:,.0f} KG** (bate com os PDFs)"
+        )
+    else:
+        st.success("✅ Nenhuma produção fora do turno alocado — todos os registros estão no turno correto.")
+
+    # Aplica turno alocado ao df global para as demais abas
+    df["Turno"] = df["Turno_Alocado"]
 
 
 # ── Aba 1: Ranking de Operadores ─────────────────────────────────────────────
@@ -635,7 +764,7 @@ with aba1:
 
     for tab_m, maq in zip(tabs_maq, maquinas_ord):
         with tab_m:
-            df_m = df[df["Máquina"] == maq]
+            df_m = df_analise[df_analise["Máquina"] == maq]
             r_m = resumo_por_maquina(df_m)
             n_m = len(r_m)
 
@@ -810,7 +939,7 @@ with aba2:
 
     quebra_pagina()
     st.subheader("KG total por Máquina × Operador")
-    df_maq_op_grp = df.groupby(["Máquina", "Nome Curto"])["Peso (KG)"].sum().reset_index()
+    df_maq_op_grp = df_analise.groupby(["Máquina", "Nome Curto"])["Peso (KG)"].sum().reset_index()
     pivot = df_maq_op_grp.pivot(index="Máquina", columns="Nome Curto", values="Peso (KG)").fillna(0)
     fig_stack = go.Figure()
     for i, op in enumerate(pivot.columns):
@@ -852,12 +981,12 @@ with aba3:
     st.header("Comparativo por Item — Quem foi Melhor?")
     st.caption("Selecione um produto e veja o desempenho de cada operador nele — comparação justa, mesmo produto.")
 
-    desc_map = df.drop_duplicates("Cód Item").set_index("Cód Item")["Descrição Item"].to_dict()
-    ops_por_item = df.groupby("Cód Item")["Operador"].nunique()
+    desc_map = df_analise.drop_duplicates("Cód Item").set_index("Cód Item")["Descrição Item"].to_dict()
+    ops_por_item = df_analise.groupby("Cód Item")["Operador"].nunique()
 
     # Horas reais por (item, operador) — período ou dias únicos conforme o formato
     horas_item_op: dict[tuple, float] = {}
-    for (item, op), g in df.groupby(["Cód Item", "Operador"]):
+    for (item, op), g in df_analise.groupby(["Cód Item", "Operador"]):
         ts    = g["Turno"].iloc[0]
         fmt   = g["Formato"].iloc[0]
         p_ini = g["Periodo_Inicio_dt"].iloc[0]
@@ -1941,9 +2070,9 @@ with aba7:
     # ── Tabela de Operadores ──────────────────────────────────────────────────
     st.subheader("👷 Produção por Operador")
 
-    _op_un_rg = df[df["Unidade"] == "UN"].groupby("Operador")["Qtd (UN)"].sum().rename("Total_UN")
+    _op_un_rg = df_analise[df_analise["Unidade"] == "UN"].groupby("Operador")["Qtd (UN)"].sum().rename("Total_UN")
     op_resumo = (
-        df.groupby(["Operador", "Nome Curto", "Turno"])
+        df_analise.groupby(["Operador", "Nome Curto", "Turno"])
         .agg(
             Total_KG=("Peso (KG)", "sum"),
             Apontamentos=("Cód Item", "count"),
@@ -1986,14 +2115,14 @@ with aba7:
     st.subheader("🏭 Produção por Máquina")
 
     maq_resumo = (
-        df.groupby("Máquina")
+        df_analise.groupby("Máquina")
         .agg(
             Total_KG=("Peso (KG)", "sum"),
             Apontamentos=("Cód Item", "count"),
             Operadores=("Nome Curto", lambda x: len(x.unique())),
         )
         .reset_index()
-        .join(df[df["Unidade"] == "UN"].groupby("Máquina")["Qtd (UN)"].sum().rename("Total_UN"), on="Máquina")
+        .join(df_analise[df_analise["Unidade"] == "UN"].groupby("Máquina")["Qtd (UN)"].sum().rename("Total_UN"), on="Máquina")
         .sort_values("Total_KG", ascending=False)
         .reset_index(drop=True)
     )
@@ -2005,7 +2134,7 @@ with aba7:
         "Total_KG": maq_resumo["Total_KG"].sum(),
         "Total_UN": int(maq_resumo["Total_UN"].sum()),
         "Apontamentos": maq_resumo["Apontamentos"].sum(),
-        "Operadores": df["Nome Curto"].nunique(),
+        "Operadores": df_analise["Nome Curto"].nunique(),
     }])
     total_maq.index = [""]
 
@@ -2026,14 +2155,14 @@ with aba7:
     # ── Totalizador geral ─────────────────────────────────────────────────────
     quebra_pagina()
     c1, c2, c3, c4 = st.columns(4)
-    _total_un_cards = int(df[df["Unidade"] == "UN"]["Qtd (UN)"].sum())
-    _total_mt_cards = df[df["Unidade"] == "MT"]["Qtd (UN)"].sum()
-    c1.metric("⚖️ Total KG", f"{df['Peso (KG)'].sum():,.3f} KG")
+    _total_un_cards = int(df_analise[df_analise["Unidade"] == "UN"]["Qtd (UN)"].sum())
+    _total_mt_cards = df_analise[df_analise["Unidade"] == "MT"]["Qtd (UN)"].sum()
+    c1.metric("⚖️ Total KG", f"{df_analise['Peso (KG)'].sum():,.3f} KG")
     c2.metric("🔢 Total peças (UN)", f"{_total_un_cards:,}",
               delta=f"+ {_total_mt_cards:,.1f} m em MT" if _total_mt_cards > 0 else None,
               delta_color="off")
-    c3.metric("👷 Operadores", df["Operador"].nunique())
-    c4.metric("🏭 Máquinas", df["Máquina"].nunique())
+    c3.metric("👷 Operadores", df_analise["Operador"].nunique())
+    c4.metric("🏭 Máquinas", df_analise["Máquina"].nunique())
 
     # ── Validação contra o relatório original ─────────────────────────────────
     st.divider()
@@ -2060,7 +2189,7 @@ with aba7:
         except ValueError:
             st.warning("⚠️ Formato inválido. Use: 191.638,346 ou 191638.346")
     if _total_pdf > 0:
-        _total_lido = df["Peso (KG)"].sum()
+        _total_lido = df["Peso (KG)"].sum()   # df completo p/ bater com o PDF
         _diff = _total_lido - _total_pdf
         _pct_diff = (_diff / _total_pdf * 100)
         _cv1, _cv2, _cv3 = st.columns(3)
@@ -2095,7 +2224,9 @@ with aba8:
         maquinas = ["Todas"] + sorted(df["Máquina"].unique().tolist())
         maq_sel = st.selectbox("Filtrar por Máquina:", maquinas)
 
-    df_exib = df.drop(columns=["Data_dt"])
+    _cols_exib = [c for c in df.columns if c not in ("Data_dt", "Turno_Alocado")]
+    df_exib = df[_cols_exib].copy()
+    df_exib["Hora Extra"] = df["Hora_Extra"].map({True: "⏰ Sim", False: "—"})
     if op_sel != "Todos":
         df_exib = df_exib[df_exib["Operador"] == op_sel]
     if turno_sel != "Todos":
@@ -2126,7 +2257,7 @@ with aba5:
             key="sel_evo",
         )
 
-    _df_op = df[df["Operador"] == _op_evo].copy()
+    _df_op = df_analise[df_analise["Operador"] == _op_evo].copy()
     _turno_op = _df_op["Turno"].iloc[0]
     _nc_op = _df_op["Nome Curto"].iloc[0]
 
