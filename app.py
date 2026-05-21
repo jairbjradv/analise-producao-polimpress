@@ -1388,6 +1388,8 @@ with aba9:
             _df_cmp_base.groupby(["Operador", "Máquina"])["Data"]
             .nunique()
         )
+        # Semáforo de cada (operador, máquina) — preenchido durante o loop
+        _sem_global_op_maq: dict[tuple, str] = {}
 
         for _maq_iter in sorted(_df_cmp_base["Máquina"].unique()):
             _df_it = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_iter]
@@ -1435,6 +1437,8 @@ with aba9:
             for _, _row in _r_it.iterrows():
                 _pct = (_row["KG/Hora"] - _melhor_h_it) / _melhor_h_it * 100 if _melhor_h_it > 0 else 0
                 _sem = "🟢" if _pct >= -10 else ("🟡" if _pct >= -25 else "🔴")
+                # Grava semáforo para uso posterior em "Outras Máq."
+                _sem_global_op_maq[(_row["Operador"], _maq_iter)] = _sem
                 if _sem == "🔴":
                     _criticos_total += 1
                     _crit_maq += 1
@@ -1495,8 +1499,8 @@ with aba9:
                     _op_maq_serie = _dias_global_op_maq.loc[_op_key]
                     for _m2, _d2 in _op_maq_serie.items():
                         if _m2 != _maq_iter and _d2 >= _MIN_DIAS:
-                            _outras_maq.append(f"{_m2.split(' - ')[0]} ({_d2}d)")
-                _outras_str = " · ".join(_outras_maq) if _outras_maq else "—"
+                            _outras_maq.append((_m2, _d2))  # guardamos tupla para semáforo depois
+                # _outras_str será preenchido APÓS o loop principal (quando _sem_global_op_maq estiver completo)
 
                 _linhas_resumo.append({
                     "Máquina":        _maq_iter.split(" - ")[0],
@@ -1512,7 +1516,8 @@ with aba9:
                     "Gap / Dia":      f"-{int(_gap_dia_op):,}" if _gap_dia_op > 0 else "—",
                     "Projetado KG":   int(_kg_pot_op),
                     "Melhor ref.":    _melhor_nome,
-                    "Outras Máq.":    _outras_str,
+                    "Outras Máq.":    _outras_maq,   # lista de tuplas temporária
+                    "_op_key":        _op_key,        # chave interna para rebuild
                 })
 
             _por_maquina.append({
@@ -1527,6 +1532,16 @@ with aba9:
                 "melhor_kg_dia": _melhor_d_it,
                 "r_it":      _r_it,   # dataframe de operadores desta máquina
             })
+
+        # ── Rebuild "Outras Máq." com semáforo (agora _sem_global_op_maq está completo) ──
+        for _lr in _linhas_resumo:
+            _op_k  = _lr.pop("_op_key")
+            _tuplas = _lr.pop("Outras Máq.")
+            _partes = []
+            for (_m2, _d2) in _tuplas:
+                _sem2 = _sem_global_op_maq.get((_op_k, _m2), "⚙️")
+                _partes.append(f"{_m2.split(' - ')[0]} {_sem2} ({_d2}d)")
+            _lr["Outras Máq."] = " · ".join(_partes) if _partes else "—"
 
         # ── Cálculo unificado do ganho potencial ─────────────────────────────
         # total inclui líderes + hora extra + não analisados para bater com PDF
