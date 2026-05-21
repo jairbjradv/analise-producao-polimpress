@@ -377,14 +377,15 @@ df["Periodo_Fim_dt"]    = pd.to_datetime(df["Periodo_Fim"],    format="%d/%m/%Y"
 # ── Turno principal por operador ──────────────────────────────────────────────
 # Para cada operador, o turno com maior KG produzido é o seu turno "oficial".
 # Horas extras em outros turnos ficam registradas sob o turno principal.
+# Turno sugerido = onde o operador mais produziu (padrão inicial)
 _turno_principal = (
     df.groupby(["Operador", "Turno"])["Peso (KG)"].sum()
     .reset_index()
     .sort_values("Peso (KG)", ascending=False)
-    .drop_duplicates(subset="Operador")   # mantém só o turno com mais KG
+    .drop_duplicates(subset="Operador")
     .set_index("Operador")["Turno"]
 )
-df["Turno"] = df["Operador"].map(_turno_principal)
+# ⚠️ NÃO sobrescreve df["Turno"] — cada registro mantém o turno original do PDF
 
 # ── Alocação de turnos via session_state (editada na aba 👷) ─────────────────
 if "turno_alocado" not in st.session_state:
@@ -393,12 +394,16 @@ for _op_ss, _t_ss in _turno_principal.items():
     if _op_ss not in st.session_state["turno_alocado"]:
         st.session_state["turno_alocado"][_op_ss] = _t_ss
 
+# Turno oficial do operador (definido na aba de alocação)
 df["Turno_Alocado"] = df["Operador"].map(st.session_state["turno_alocado"])
-df["Hora_Extra"]    = df["Turno"] != df["Turno_Alocado"]
-df["Turno"]         = df["Turno_Alocado"]   # turno alocado substitui o original
 
-# df_analise: somente registros no turno regular — usado por todas as abas
+# Hora extra = registro gerado em turno diferente do turno alocado
+df["Hora_Extra"] = df["Turno"] != df["Turno_Alocado"]
+
+# df_analise: somente registros no turno regular
+# Usa Turno_Alocado como turno do operador para cálculo de horas
 df_analise = df[~df["Hora_Extra"]].copy()
+df_analise["Turno"] = df_analise["Turno_Alocado"]
 
 _turnos_no_df = sorted(df["Turno"].unique())
 _resumo_turnos = "  ·  ".join(
@@ -583,11 +588,8 @@ with aba0:
 
     st.divider()
 
-    # ── Aplica alocação ao df: registros fora do turno → hora extra ───────────
-    _alocacao = st.session_state["turno_alocado"]
-    df["Turno_Alocado"] = df["Operador"].map(_alocacao)
-    df["Hora_Extra"]    = df["Turno"] != df["Turno_Alocado"]
-
+    # ── Resumo da alocação — usa df já processado antes das abas ─────────────
+    # df["Hora_Extra"] e df["Turno_Alocado"] já foram calculados globalmente
     _df_normal = df[~df["Hora_Extra"]].copy()
     _df_extra  = df[ df["Hora_Extra"]].copy()
 
@@ -631,8 +633,6 @@ with aba0:
     else:
         st.success("✅ Nenhuma produção fora do turno alocado — todos os registros estão no turno correto.")
 
-    # Aplica turno alocado ao df global para as demais abas
-    df["Turno"] = df["Turno_Alocado"]
 
 
 # ── Aba 1: Ranking de Operadores ─────────────────────────────────────────────
