@@ -1874,11 +1874,12 @@ with aba9:
                 st.plotly_chart(_fig2, use_container_width=True)
 
             with _col_g3:
-                st.markdown(f"**KG real vs. projetado — {_proj_label}** *(dias úteis sem dom./feriados)*")
+                st.markdown(f"**KG real vs. potencial no período** *(se rodasse no ritmo do melhor, nos mesmos dias)*")
                 # Converte para listas puras para evitar problemas com Pandas Series no Plotly
                 _nc_list   = _r_cmp["Nome Curto"].tolist()
                 _real_list = _r_cmp["Total_KG"].tolist()
-                _proj_list = _r_cmp["KG Proj."].tolist()
+                # Potencial = o que teria produzido nos mesmos dias/horas ao ritmo do melhor (KG/h)
+                _pot_list  = (_melhor_h * _r_cmp["Horas"]).round(0).astype(int).tolist()
 
                 _fig3 = go.Figure()
                 _fig3.add_trace(go.Bar(
@@ -1890,9 +1891,9 @@ with aba9:
                     offsetgroup=0,
                 ))
                 _fig3.add_trace(go.Bar(
-                    name="KG projetado",
-                    x=_nc_list, y=_proj_list,
-                    text=[f"{v:,.0f}" for v in _proj_list],
+                    name=f"Potencial (@ {_melhor_h:.2f} KG/h)",
+                    x=_nc_list, y=_pot_list,
+                    text=[f"{v:,.0f}" for v in _pot_list],
                     textposition="inside", textfont=dict(size=12, color="white"),
                     marker_color=_cores_sem,  # semáforo por operador
                     offsetgroup=1,
