@@ -1874,17 +1874,39 @@ with aba9:
                 st.plotly_chart(_fig2, use_container_width=True)
 
             with _col_g3:
-                st.markdown(f"**KG projetado — {_proj_label}** *(dias úteis sem dom./feriados)*")
-                _fig3 = go.Figure(go.Bar(
-                    x=_r_cmp["Nome Curto"], y=_r_cmp["KG Proj."],
-                    text=_r_cmp["KG Proj."].apply(lambda v: f"{v:,.0f}"),
-                    textposition="inside", textfont=dict(size=13, color="white"),
-                    marker_color=_cores_sem,
+                st.markdown(f"**KG real vs. projetado — {_proj_label}** *(dias úteis sem dom./feriados)*")
+                # Converte para listas puras para evitar problemas com Pandas Series no Plotly
+                _nc_list   = _r_cmp["Nome Curto"].tolist()
+                _real_list = _r_cmp["Total_KG"].tolist()
+                _proj_list = _r_cmp["KG Proj."].tolist()
+
+                _fig3 = go.Figure()
+                _fig3.add_trace(go.Bar(
+                    name="KG real (período)",
+                    x=_nc_list, y=_real_list,
+                    text=[f"{v:,.0f}" for v in _real_list],
+                    textposition="inside", textfont=dict(size=12, color="white"),
+                    marker_color="#6495ED",   # azul cornflower fixo
+                    offsetgroup=0,
+                ))
+                _fig3.add_trace(go.Bar(
+                    name="KG projetado",
+                    x=_nc_list, y=_proj_list,
+                    text=[f"{v:,.0f}" for v in _proj_list],
+                    textposition="inside", textfont=dict(size=12, color="white"),
+                    marker_color=_cores_sem,  # semáforo por operador
+                    offsetgroup=1,
                 ))
                 _fig3.update_layout(
-                    height=300, bargap=0.4, margin=dict(t=10, b=10, l=10, r=10),
+                    barmode="group",
+                    height=320, bargap=0.2, bargroupgap=0.08,
+                    margin=dict(t=30, b=10, l=10, r=10),
                     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                     font=dict(color="white"), yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                    legend=dict(
+                        orientation="h", yanchor="bottom", y=1.01,
+                        xanchor="left", x=0, font=dict(size=11),
+                    ),
                 )
                 st.plotly_chart(_fig3, use_container_width=True)
 
