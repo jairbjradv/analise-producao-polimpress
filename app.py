@@ -394,6 +394,16 @@ for _op_ss, _t_ss in _turno_principal.items():
     if _op_ss not in st.session_state["turno_alocado"]:
         st.session_state["turno_alocado"][_op_ss] = _t_ss
 
+# ── Líderes — excluídos da comparação de KG/h ────────────────────────────────
+_LIDERES_PADRAO = {"LUIZ FERNANDO BELO", "MATHEUS MORETTI", "WELINGTON GUSTAVO"}
+if "lideres" not in st.session_state:
+    st.session_state["lideres"] = set()
+# Marca automaticamente os líderes padrão se ainda não foram processados
+for _op_ss in df["Operador"].unique():
+    _nome_upper = _op_ss.strip().upper()
+    if any(_l in _nome_upper for _l in _LIDERES_PADRAO):
+        st.session_state["lideres"].add(_op_ss)
+
 # Turno oficial do operador (definido na aba de alocação)
 df["Turno_Alocado"] = df["Operador"].map(st.session_state["turno_alocado"])
 
@@ -404,6 +414,7 @@ df["Hora_Extra"] = df["Turno"] != df["Turno_Alocado"]
 # Usa Turno_Alocado como turno do operador para cálculo de horas
 df_analise = df[~df["Hora_Extra"]].copy()
 df_analise["Turno"] = df_analise["Turno_Alocado"]
+df_analise["Lider"] = df_analise["Operador"].isin(st.session_state["lideres"])
 
 _turnos_no_df = sorted(df["Turno"].unique())
 _resumo_turnos = "  ·  ".join(
@@ -550,14 +561,15 @@ with aba0:
     st.markdown("#### Operadores detectados nos PDFs")
     st.info(
         "💡 O turno sugerido é o que o operador mais produziu no período. "
-        "Altere onde necessário e as demais abas refletirão a nova alocação."
+        "Marque como **Líder** quem não deve entrar na comparação de KG/h."
     )
 
     # Monta tabela editável
     _ops_lista = sorted(df["Operador"].unique())
-    _col_op, _col_t = st.columns([3, 1])
+    _col_op, _col_t, _col_l = st.columns([3, 1, 1])
     _col_op.markdown("**Operador**")
     _col_t.markdown("**Turno alocado**")
+    _col_l.markdown("**Líder**")
     st.divider()
 
     for _op in _ops_lista:
@@ -569,7 +581,7 @@ with aba0:
         _detalhes = "  ·  ".join(
             f"{t}: {kg:,.0f} KG" for t, kg in _kg_por_turno.items()
         )
-        _col_a, _col_b = st.columns([3, 1])
+        _col_a, _col_b, _col_c = st.columns([3, 1, 1])
         with _col_a:
             st.markdown(
                 f"**{nome_curto(_op)}** &nbsp; <span style='color:gray;font-size:0.85em'>{_detalhes}</span>",
@@ -585,6 +597,17 @@ with aba0:
                 label_visibility="collapsed",
             )
             st.session_state["turno_alocado"][_op] = _novo
+        with _col_c:
+            _is_lider = st.checkbox(
+                label="líder",
+                value=(_op in st.session_state["lideres"]),
+                key=f"lider_sel_{_op}",
+                label_visibility="collapsed",
+            )
+            if _is_lider:
+                st.session_state["lideres"].add(_op)
+            else:
+                st.session_state["lideres"].discard(_op)
 
     st.divider()
 
@@ -1325,9 +1348,19 @@ with aba9:
     )
 
     # ── Visão consolidada — Todas as máquinas ────────────────────────────────
-    # Aplica filtro de turno ao dataframe base desta aba
-    _df_cmp_base = df if _turno_cmp == "Todos os turnos" else df[df["Turno"] == _turno_cmp]
+    # Aplica filtro de turno e exclui líderes da comparação
+    _lideres_ativos = st.session_state.get("lideres", set())
+    _df_cmp_base = df_analise[~df_analise["Operador"].isin(_lideres_ativos)]
+    if _turno_cmp != "Todos os turnos":
+        _df_cmp_base = _df_cmp_base[_df_cmp_base["Turno"] == _turno_cmp]
     _turno_label = "" if _turno_cmp == "Todos os turnos" else f" — {_turno_cmp}"
+
+    # KG dos líderes (para reconciliação nas tabelas)
+    _df_lideres_base = df_analise[df_analise["Operador"].isin(_lideres_ativos)]
+    if _turno_cmp != "Todos os turnos":
+        _df_lideres_base = _df_lideres_base[_df_lideres_base["Turno"] == _turno_cmp]
+    _kg_lideres = _df_lideres_base["Peso (KG)"].sum()
+    _n_lideres  = _df_lideres_base["Operador"].nunique()
 
     if _maq_cmp == _TODAS:
         st.subheader(f"📊 Impacto consolidado — Todas as máquinas{_turno_label}")
@@ -1472,9 +1505,8 @@ with aba9:
             })
 
         # ── Cálculo unificado do ganho potencial ─────────────────────────────
-        # Projetado = total real + gap dos comparáveis (soma direta — sem multiplicador)
-        # Assim o card 🚀 bate exatamente com a soma da coluna "Projetado KG" da tabela
-        _total_relatorio = _df_cmp_base["Peso (KG)"].sum()
+        # total inclui líderes + não analisados para bater com o relatório
+        _total_relatorio = _df_cmp_base["Peso (KG)"].sum() + _kg_lideres
         _projetado_total = _total_relatorio + _gap_total
         _ganho_real      = _projetado_total - _total_relatorio
         _pct_gp          = (_ganho_real / _total_relatorio * 100) if _total_relatorio > 0 else 0
@@ -1584,11 +1616,29 @@ with aba9:
                     "Melhor ref.":    "―",
                 }
 
+                # Linha líderes
+                _row_lideres_cons = {
+                    "Máquina":        "―",
+                    "Operador":       f"👑 Líderes ({_n_lideres} op.) — não comparados",
+                    "Turno":          "―",
+                    "Semáforo":       "👑",
+                    "vs Melhor":      "―",
+                    "KG / Hora":      "―",
+                    "KG / Dia":       "―",
+                    "KG no período":  int(round(_kg_lideres)),
+                    "Gap no período": "—",
+                    "Gap / Dia":      "—",
+                    "Projetado KG":   int(round(_kg_lideres)),
+                    "Melhor ref.":    "―",
+                }
+
                 _extras = []
                 if _n_verdes > 0:
                     _extras.append(pd.DataFrame([_row_verdes]))
                 if _kg_nao_anal > 0:
                     _extras.append(pd.DataFrame([_row_nao_anal]))
+                if _kg_lideres > 0:
+                    _extras.append(pd.DataFrame([_row_lideres_cons]))
                 _extras.append(pd.DataFrame([_row_total_cons]))
 
                 _df_atencao_final = pd.concat(
@@ -1601,7 +1651,11 @@ with aba9:
 
     else:
         # ── Visão por máquina específica ─────────────────────────────────────
-        _df_maq_c = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp].copy()
+        # _df_cmp_base já exclui líderes; separamos para reconciliação
+        _df_maq_c       = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp].copy()
+        _df_maq_lideres = _df_lideres_base[_df_lideres_base["Máquina"] == _maq_cmp]
+        _kg_lid_maq     = _df_maq_lideres["Peso (KG)"].sum()
+        _n_lid_maq      = _df_maq_lideres["Operador"].nunique()
 
         # Dias por operador nessa máquina
         _dias_op_maq = _df_maq_c.groupby("Operador")["Data"].nunique()
@@ -1850,12 +1904,31 @@ with aba9:
                 "Total UN":       _un_outros,
             }
 
-            # Linha total geral — bate com os cards
+            # Linha líderes nesta máquina
+            _row_lideres_maq = {
+                "Semáforo":       "👑",
+                "Operador":       f"👑 Líderes ({_n_lid_maq} op.) — não comparados",
+                "Turno":          "―",
+                "Dias na Máq.":   "―",
+                "Horas":          "―",
+                "KG / Hora":      "―",
+                "KG / Dia":       "―",
+                "vs Melhor":      "―",
+                "Gap no período": "—",
+                "Gap / Dia":      "—",
+                "Itens":          "―",
+                "Total KG":       round(_kg_lid_maq, 1),
+                "Projetado KG":   round(_kg_lid_maq, 1),
+                "Total UN":       "―",
+            }
+
+            # Linha total geral — inclui líderes para bater com o relatório
             _gap_maq_periodo  = _r_cmp["Gap Período"].sum()
             _real_maq_periodo = _r_cmp["Total_KG"].sum()
-            _total_maq_relatorio = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
-            # Projetado = soma das colunas Projetado KG (comparáveis) + kg outros (sem dados)
-            _projetado_maq   = round(_r_cmp["Projetado KG"].sum() + _kg_outros, 1)
+            _total_maq_relatorio = (_df_cmp_base[_df_cmp_base["Máquina"] == _maq_cmp]["Peso (KG)"].sum()
+                                    + _kg_lid_maq)
+            # Projetado = soma das colunas Projetado KG (comparáveis) + kg outros + líderes
+            _projetado_maq   = round(_r_cmp["Projetado KG"].sum() + _kg_outros + _kg_lid_maq, 1)
             _pct_gap_maq_per = ((_projetado_maq - _total_maq_relatorio) / _total_maq_relatorio * 100) if _total_maq_relatorio > 0 else 0
             _ganho_real_maq  = _projetado_maq - _total_maq_relatorio
 
@@ -1868,20 +1941,22 @@ with aba9:
                 "KG / Hora":      round(_r_cmp["KG / Hora"].mean(), 2),
                 "KG / Dia":       round(_r_cmp["KG / Dia"].mean(), 1),
                 "vs Melhor":      f"{((_r_cmp['KG / Hora'].mean()-_melhor_h)/_melhor_h*100):+.1f}%",
-                "Gap no período": f"-{_gap_maq_periodo:,.0f}",   # ← bate com card "KG deixados"
+                "Gap no período": f"-{_gap_maq_periodo:,.0f}",
                 "Gap / Dia":      f"-{(_gap_maq_periodo / _r_cmp['Dias na Máq.'].sum()):,.0f}" if _r_cmp['Dias na Máq.'].sum() > 0 else "―",
                 "Itens":          "―",
-                "Total KG":       round(_total_maq_relatorio, 1), # ← bate com card "Total produzido"
-                "Projetado KG":   _projetado_maq,                 # ← bate com card "Projetado"
-                "Total UN":       int(_df_maq_c["Peso (KG)"].count()),  # total apontamentos
+                "Total KG":       round(_total_maq_relatorio, 1),
+                "Projetado KG":   _projetado_maq,
+                "Total UN":       int(_df_maq_c["Peso (KG)"].count()),
             }
 
-            _df_exib_final = pd.concat(
-                [_df_exib_cmp,
-                 pd.DataFrame([_row_outros]) if _kg_outros > 0 else pd.DataFrame(),
-                 pd.DataFrame([_row_total])],
-                ignore_index=True,
-            )
+            _partes_tabela = [_df_exib_cmp]
+            if _kg_outros > 0:
+                _partes_tabela.append(pd.DataFrame([_row_outros]))
+            if _kg_lid_maq > 0:
+                _partes_tabela.append(pd.DataFrame([_row_lideres_maq]))
+            _partes_tabela.append(pd.DataFrame([_row_total]))
+
+            _df_exib_final = pd.concat(_partes_tabela, ignore_index=True)
             _altura_final = 38 + len(_df_exib_final) * 35 + 2
             st.dataframe(_df_exib_final, use_container_width=True, hide_index=True,
                          height=_altura_final)
