@@ -1383,6 +1383,12 @@ with aba9:
         _linhas_resumo = []
         _por_maquina = []   # resumo por máquina para cards individuais
 
+        # Pré-calcula dias por operador × máquina (para exibir na tabela de atenção)
+        _dias_global_op_maq = (
+            _df_cmp_base.groupby(["Operador", "Máquina"])["Data"]
+            .nunique()
+        )
+
         for _maq_iter in sorted(_df_cmp_base["Máquina"].unique()):
             _df_it = _df_cmp_base[_df_cmp_base["Máquina"] == _maq_iter]
             _dias_it = _df_it.groupby("Operador")["Data"].nunique()
@@ -1482,8 +1488,19 @@ with aba9:
 
                 _dias_op_it = _dias_it_v.get(_op_key, 1)
                 _gap_dia_op = round(_gap_op / _dias_op_it, 1) if _dias_op_it > 0 else 0.0
+
+                # Outras máquinas onde este operador trabalhou ≥ _MIN_DIAS dias no período
+                _outras_maq = []
+                if _op_key in _dias_global_op_maq.index.get_level_values("Operador"):
+                    _op_maq_serie = _dias_global_op_maq.loc[_op_key]
+                    for _m2, _d2 in _op_maq_serie.items():
+                        if _m2 != _maq_iter and _d2 >= _MIN_DIAS:
+                            _outras_maq.append(f"{_m2.split(' - ')[0]} ({_d2}d)")
+                _outras_str = " · ".join(_outras_maq) if _outras_maq else "—"
+
                 _linhas_resumo.append({
                     "Máquina":        _maq_iter.split(" - ")[0],
+                    "Dias na Máq.":   _dias_op_it,
                     "Operador":       _row["Nome Curto"],
                     "Turno":          _row["Turno"],
                     "Semáforo":       _sem,
@@ -1495,6 +1512,7 @@ with aba9:
                     "Gap / Dia":      f"-{int(_gap_dia_op):,}" if _gap_dia_op > 0 else "—",
                     "Projetado KG":   int(_kg_pot_op),
                     "Melhor ref.":    _melhor_nome,
+                    "Outras Máq.":    _outras_str,
                 })
 
             _por_maquina.append({
@@ -1579,6 +1597,7 @@ with aba9:
 
                 _row_verdes = {
                     "Máquina":        "―",
+                    "Dias na Máq.":   "―",
                     "Operador":       f"✅ No nível do melhor ({_n_verdes} op.)",
                     "Turno":          "―",
                     "Semáforo":       "🟢",
@@ -1590,9 +1609,11 @@ with aba9:
                     "Gap / Dia":      "—",
                     "Projetado KG":   _proj_verdes,
                     "Melhor ref.":    "―",
+                    "Outras Máq.":    "―",
                 }
                 _row_nao_anal = {
                     "Máquina":        "―",
+                    "Dias na Máq.":   "―",
                     "Operador":       f"⚙️ Outros {_n_nao_anal} op. (< {_MIN_DIAS} dias na máq.)",
                     "Turno":          "―",
                     "Semáforo":       "⚙️",
@@ -1604,27 +1625,31 @@ with aba9:
                     "Gap / Dia":      "—",
                     "Projetado KG":   _kg_nao_anal,
                     "Melhor ref.":    "―",
+                    "Outras Máq.":    "―",
                 }
 
                 # ── Linha TOTAL GERAL — bate com os cards ────────────────────
                 _row_total_cons = {
                     "Máquina":        "―",
+                    "Dias na Máq.":   "―",
                     "Operador":       "TOTAL GERAL",
                     "Turno":          "―",
                     "Semáforo":       "📊",
                     "vs Melhor":      "―",
                     "KG / Hora":      "―",
                     "KG / Dia":       "―",
-                    "KG no período":  int(round(_total_relatorio)),   # ← bate com card 📦
-                    "Gap no período": f"-{int(_gap_total):,}",        # ← bate com card 📉
+                    "KG no período":  int(round(_total_relatorio)),
+                    "Gap no período": f"-{int(_gap_total):,}",
                     "Gap / Dia":      "―",
-                    "Projetado KG":   int(round(_projetado_total)),   # ← bate com card 🚀
+                    "Projetado KG":   int(round(_projetado_total)),
                     "Melhor ref.":    "―",
+                    "Outras Máq.":    "―",
                 }
 
                 # Linha líderes
                 _row_lideres_cons = {
                     "Máquina":        "―",
+                    "Dias na Máq.":   "―",
                     "Operador":       f"👑 Líderes ({_n_lideres} op.) — não comparados",
                     "Turno":          "―",
                     "Semáforo":       "👑",
@@ -1636,10 +1661,12 @@ with aba9:
                     "Gap / Dia":      "—",
                     "Projetado KG":   int(round(_kg_lideres)),
                     "Melhor ref.":    "―",
+                    "Outras Máq.":    "―",
                 }
 
                 _row_hora_extra_cons = {
                     "Máquina":        "―",
+                    "Dias na Máq.":   "―",
                     "Operador":       "⏰ Hora extra (fora do turno alocado)",
                     "Turno":          "―",
                     "Semáforo":       "⏰",
@@ -1651,6 +1678,7 @@ with aba9:
                     "Gap / Dia":      "—",
                     "Projetado KG":   int(round(_kg_hora_extra_total)),
                     "Melhor ref.":    "―",
+                    "Outras Máq.":    "―",
                 }
 
                 _extras = []
