@@ -2426,7 +2426,113 @@ with aba8:
 # ── Aba 5: Evolução Operador ──────────────────────────────────────────────────
 with aba5:
     st.header("📈 Evolução Individual do Operador")
-    st.caption("Carregue o relatório RPCP621 de um único operador com vários meses para ver a evolução mês a mês.")
+    st.caption("Carregue PDFs de múltiplos meses (todos os 3 turnos) para ver evolução mês a mês.")
+
+    # ── Panorama geral de evolução — todos os operadores ─────────────────────
+    _all_periodos = df_analise["Data_dt"].dt.to_period("M").dropna().unique()
+    _n_meses_total = len(_all_periodos)
+
+    if _n_meses_total >= 2:
+        _meses_ord_pan = sorted(_all_periodos)
+        _mes_ini_pan = pd.Period(_meses_ord_pan[0],  "M").strftime("%b/%Y")
+        _mes_fim_pan = pd.Period(_meses_ord_pan[-1], "M").strftime("%b/%Y")
+        st.subheader(f"📊 Panorama Geral — Todos os Operadores ({_mes_ini_pan} → {_mes_fim_pan})")
+        st.caption(f"{_n_meses_total} meses carregados  ·  tendência = primeiro mês vs último mês")
+
+        def _tend_icon(ini, fim):
+            """Retorna ícone + % de variação entre dois valores."""
+            if ini == 0:
+                return "—"
+            pct = (fim - ini) / ini * 100
+            icon = "📈" if pct > 3 else ("📉" if pct < -3 else "➡️")
+            return f"{icon} {pct:+.1f}%"
+
+        _panorama_rows = []
+        for _op_pan in sorted(df_analise["Operador"].unique()):
+            _dfp = df_analise[df_analise["Operador"] == _op_pan].copy()
+            _dfp["_mp"] = _dfp["Data_dt"].dt.to_period("M")
+            _turno_pan = _dfp["Turno"].mode().iloc[0]
+
+            _meses_op = sorted(_dfp["_mp"].unique())
+            if len(_meses_op) < 2:
+                continue  # só aparece com ≥ 2 meses de dados
+
+            # Agrega KG/h, KG/dia e KG/mês por mês
+            _mon = []
+            for _mp in _meses_op:
+                _dm = _dfp[_dfp["_mp"] == _mp]
+                _du = _dm["Data_dt"].dropna().drop_duplicates()
+                _h  = _du.apply(lambda d: horas_turno(_turno_pan, d)).sum()
+                _d  = len(_du)
+                _kg = _dm["Peso (KG)"].sum()
+                _mon.append({
+                    "kg_h": round(_kg / _h,  2) if _h > 0 else 0,
+                    "kg_d": round(_kg / _d,  1) if _d > 0 else 0,
+                    "kg_m": round(_kg, 1),
+                })
+
+            _f, _l = _mon[0], _mon[-1]
+
+            # Máquina principal (mais dias no total do período)
+            _dias_maq_pan = _dfp.groupby("Máquina")["Data"].nunique()
+            _maq_prin     = _dias_maq_pan.idxmax()
+            _dias_maq_tot = int(_dias_maq_pan.max())
+            _maq_curta_pan = _maq_prin.split(" - ")[0]
+
+            # Tendência de KG/h na máquina principal
+            _dfp_maq = _dfp[_dfp["Máquina"] == _maq_prin]
+            _dfp_maq = _dfp_maq.copy()
+            _dfp_maq["_mp"] = _dfp_maq["Data_dt"].dt.to_period("M")
+            _kgh_maq_por_mes = []
+            for _mp in sorted(_dfp_maq["_mp"].unique()):
+                _dm = _dfp_maq[_dfp_maq["_mp"] == _mp]
+                _du = _dm["Data_dt"].dropna().drop_duplicates()
+                if len(_du) < 3:
+                    continue  # ignora meses com presença irrisória na máquina
+                _h  = _du.apply(lambda d: horas_turno(_turno_pan, d)).sum()
+                _kg = _dm["Peso (KG)"].sum()
+                _kgh_maq_por_mes.append(round(_kg / _h, 2) if _h > 0 else 0)
+
+            _tend_maq = (
+                _tend_icon(_kgh_maq_por_mes[0], _kgh_maq_por_mes[-1])
+                if len(_kgh_maq_por_mes) >= 2 else "⚙️ 1 mês"
+            )
+
+            _panorama_rows.append({
+                "Operador":         nome_curto(_op_pan),
+                "Turno":            _turno_pan,
+                "Meses":            len(_meses_op),
+                "KG/h  ini":        _f["kg_h"],
+                "KG/h  fim":        _l["kg_h"],
+                "Tend. KG/h":       _tend_icon(_f["kg_h"], _l["kg_h"]),
+                "KG/dia ini":       _f["kg_d"],
+                "KG/dia fim":       _l["kg_d"],
+                "Tend. KG/dia":     _tend_icon(_f["kg_d"], _l["kg_d"]),
+                "KG/mês ini":       int(_f["kg_m"]),
+                "KG/mês fim":       int(_l["kg_m"]),
+                "Tend. KG/mês":     _tend_icon(_f["kg_m"], _l["kg_m"]),
+                "Máq. Principal":   f"{_maq_curta_pan} ({_dias_maq_tot}d)",
+                "Tend. na Máq.":    _tend_maq,
+            })
+
+        if _panorama_rows:
+            _df_pan = pd.DataFrame(_panorama_rows)
+            # Filtro por turno
+            _turnos_pan = ["Todos"] + sorted(_df_pan["Turno"].unique().tolist())
+            _turno_fil  = st.selectbox("Filtrar por turno:", _turnos_pan, key="pan_turno")
+            if _turno_fil != "Todos":
+                _df_pan = _df_pan[_df_pan["Turno"] == _turno_fil]
+            _alt_pan = 38 + len(_df_pan) * 35 + 2
+            st.dataframe(_df_pan, use_container_width=True, hide_index=True, height=_alt_pan)
+        else:
+            st.info("Nenhum operador com dados em ≥ 2 meses diferentes.")
+
+        st.divider()
+    else:
+        st.info("ℹ️ **Carregue PDFs de múltiplos meses** (ex: Janeiro + Fevereiro + Março, todos os 3 turnos) para ativar o panorama de evolução de todos os operadores.")
+        st.divider()
+
+    st.subheader("🔍 Análise Individual por Operador")
 
     # Seleção do operador
     _ops_evo = sorted(df["Operador"].unique())
