@@ -257,6 +257,10 @@ def extrair_dados_pdf(pdf_file) -> list[dict]:
                     periodo_fim_str    = m.group(2)
                     if m.group(3):          # Turno*:X no cabeçalho
                         turno = f"Turno {m.group(3)}"
+                    # Período e Recurso podem estar na mesma linha (ex: RPCP621)
+                    mr = _RE_RECURSO.search(linha)
+                    if mr:
+                        recurso_atual = mr.group(1).strip()
                     continue
 
                 # ── Funcionário (novo formato) ──────────────────────────────
